@@ -15,6 +15,9 @@ public class ChunkSpawner : MonoBehaviour
     [SerializeField] private Transform player;
     [SerializeField] private Chunk[] chunkPrefabs;
 
+    [Tooltip("Необязательно. Если назначен — расставляет препятствия в каждом новом чанке.")]
+    [SerializeField] private ObstacleSpawner obstacleSpawner;
+
     [Header("Настройки трассы")]
     [Tooltip("Сколько чанков держать впереди игрока.")]
     [SerializeField] private int chunksAhead = 4;
@@ -110,6 +113,14 @@ public class ChunkSpawner : MonoBehaviour
         chunk.SourcePrefab = prefab;
         chunk.OnSpawned();
 
+        // Препятствия ставим уже после того, как чанк оказался на своём месте:
+        // генератору нужны мировые координаты, чтобы выдержать интервалы.
+        if (obstacleSpawner != null)
+        {
+            float distance = _playerController != null ? _playerController.Distance : 0f;
+            obstacleSpawner.Populate(chunk, distance);
+        }
+
         _active.Add(chunk);
         _nextSpawnZ += chunk.Length;
         _lastPrefab = prefab;
@@ -118,6 +129,8 @@ public class ChunkSpawner : MonoBehaviour
     private void Despawn(Chunk chunk)
     {
         _active.RemoveAt(0);
+
+        if (obstacleSpawner != null) obstacleSpawner.Clear(chunk);
         chunk.OnDespawned();
 
         if (chunk.SourcePrefab != null && _pools.TryGetValue(chunk.SourcePrefab, out ObjectPool pool))

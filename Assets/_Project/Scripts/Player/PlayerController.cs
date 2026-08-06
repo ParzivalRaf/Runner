@@ -153,6 +153,9 @@ public class PlayerController : MonoBehaviour
 
     private void Update()
     {
+        // После столкновения игрок замирает на месте.
+        if (GameManager.Instance != null && !GameManager.Instance.IsRunning) return;
+
         float dt = Time.deltaTime;
 
         UpdateSpeed(dt);
@@ -286,16 +289,31 @@ public class PlayerController : MonoBehaviour
         ApplyStandingCollider();
     }
 
+    private static readonly Collider[] OverheadBuffer = new Collider[8];
+
+    /// <summary>
+    /// Проверяем, не встанем ли мы головой в балку, если сейчас разогнёмся.
+    /// Ищем именно компонент Obstacle, а не слой — так не нужно заводить
+    /// отдельный Layer и его легко забыть проставить на префабе.
+    /// </summary>
     private bool IsBlockedAbove()
     {
-        if (obstacleMask == 0) return false;
-
         Vector3 bottom = transform.position + Vector3.up * (slidingHeight + capsuleRadius);
         Vector3 top = transform.position + Vector3.up * (standingHeight - capsuleRadius);
         if (top.y <= bottom.y) return false;
 
-        return Physics.CheckCapsule(bottom, top, capsuleRadius * 0.95f, obstacleMask,
-                                    QueryTriggerInteraction.Collide);
+        int mask = obstacleMask == 0 ? ~0 : obstacleMask.value;
+
+        int count = Physics.OverlapCapsuleNonAlloc(bottom, top, capsuleRadius * 0.95f,
+                                                   OverheadBuffer, mask,
+                                                   QueryTriggerInteraction.Collide);
+
+        for (int i = 0; i < count; i++)
+        {
+            if (OverheadBuffer[i].GetComponentInParent<Obstacle>() != null) return true;
+        }
+
+        return false;
     }
 
     private void ApplyStandingCollider() => ApplyColliderHeight(standingHeight);

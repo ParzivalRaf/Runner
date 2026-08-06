@@ -17,6 +17,7 @@ public static class RunnerSceneBuilder
     private const string ProjectRoot = "Assets/_Project";
     private const string MaterialsFolder = ProjectRoot + "/Materials";
     private const string ChunksFolder = ProjectRoot + "/Prefabs/Chunks";
+    private const string ObstaclesFolder = ProjectRoot + "/Prefabs/Obstacles";
 
     private const float LaneDistance = 2.5f;
     private const float TrackWidth = 12f;
@@ -83,6 +84,61 @@ public static class RunnerSceneBuilder
         Finish(player, $"Сцена M2 собрана: {prefabs.Count} типа чанков. Жми Play.");
     }
 
+    // ===================================================================== M3
+
+    [MenuItem("Tools/Runner/M3 — препятствия и Game Over")]
+    public static void BuildM3Scene()
+    {
+        DeleteIfExists("Track");
+        DeleteIfExists("ChunkSpawner");
+        DeleteIfExists("Player");
+        DeleteIfExists("GameManager");
+
+        Materials mats = LoadMaterials();
+
+        List<Chunk> chunkPrefabs = CreateChunkPrefabs(mats);
+        Obstacle block = CreateObstaclePrefab("Obstacle_Block", Obstacle.Kind.Block, mats);
+        Obstacle jump = CreateObstaclePrefab("Obstacle_Jump", Obstacle.Kind.JumpOver, mats);
+        Obstacle slide = CreateObstaclePrefab("Obstacle_Slide", Obstacle.Kind.SlideUnder, mats);
+
+        GameObject player = BuildPlayer(mats);
+        SetUpCamera(player.transform);
+        SetUpLight();
+
+        new GameObject("GameManager").AddComponent<GameManager>();
+
+        var spawnerGo = new GameObject("ChunkSpawner");
+        var chunkSpawner = spawnerGo.AddComponent<ChunkSpawner>();
+        var obstacleSpawner = spawnerGo.AddComponent<ObstacleSpawner>();
+
+        var obstacleSo = new SerializedObject(obstacleSpawner);
+        obstacleSo.FindProperty("blockPrefab").objectReferenceValue = block;
+        obstacleSo.FindProperty("jumpPrefab").objectReferenceValue = jump;
+        obstacleSo.FindProperty("slidePrefab").objectReferenceValue = slide;
+        obstacleSo.ApplyModifiedPropertiesWithoutUndo();
+
+        var so = new SerializedObject(chunkSpawner);
+        so.FindProperty("player").objectReferenceValue = player.transform;
+        so.FindProperty("obstacleSpawner").objectReferenceValue = obstacleSpawner;
+
+        SerializedProperty prefabsProp = so.FindProperty("chunkPrefabs");
+        prefabsProp.arraySize = chunkPrefabs.Count;
+        for (int i = 0; i < chunkPrefabs.Count; i++)
+            prefabsProp.GetArrayElementAtIndex(i).objectReferenceValue = chunkPrefabs[i];
+
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        var hud = player.GetComponent<DebugHud>();
+        if (hud != null)
+        {
+            var hudSo = new SerializedObject(hud);
+            hudSo.FindProperty("spawner").objectReferenceValue = chunkSpawner;
+            hudSo.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        Finish(player, "Сцена M3 собрана: препятствия, столкновения, рестарт. Жми Play.");
+    }
+
     // ============================================================== материалы
 
     private struct Materials
@@ -92,6 +148,9 @@ public static class RunnerSceneBuilder
         public Material Rail;
         public Material Player;
         public Material Prop;
+        public Material Block;
+        public Material Jump;
+        public Material Slide;
     }
 
     private static Materials LoadMaterials()
@@ -102,8 +161,72 @@ public static class RunnerSceneBuilder
             Marker = GetOrCreateMaterial("M_Marker", new Color(0.85f, 0.85f, 0.88f)),
             Rail = GetOrCreateMaterial("M_Rail", new Color(0.32f, 0.36f, 0.42f)),
             Player = GetOrCreateMaterial("M_Player", new Color(0.95f, 0.45f, 0.15f)),
-            Prop = GetOrCreateMaterial("M_Prop", new Color(0.45f, 0.50f, 0.58f))
+            Prop = GetOrCreateMaterial("M_Prop", new Color(0.45f, 0.50f, 0.58f)),
+
+            // Серые кубы, но подкрашенные: цвет сразу говорит, что делать.
+            // Красный — объехать, жёлтый — прыгнуть, синий — подкат.
+            Block = GetOrCreateMaterial("M_ObstacleBlock", new Color(0.62f, 0.26f, 0.26f)),
+            Jump = GetOrCreateMaterial("M_ObstacleJump", new Color(0.80f, 0.64f, 0.20f)),
+            Slide = GetOrCreateMaterial("M_ObstacleSlide", new Color(0.24f, 0.44f, 0.70f))
         };
+    }
+
+    // ============================================================ препятствия
+
+    private static Obstacle CreateObstaclePrefab(string prefabName, Obstacle.Kind kind, Materials mats)
+    {
+        EnsureFolder(ProjectRoot + "/Prefabs");
+        EnsureFolder(ObstaclesFolder);
+
+        var root = new GameObject(prefabName);
+        Obstacle obstacle = root.AddComponent<Obstacle>();
+
+        var so = new SerializedObject(obstacle);
+        so.FindProperty("kind").enumValueIndex = (int)kind;
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        var trigger = root.AddComponent<BoxCollider>();
+        trigger.isTrigger = true;
+
+        switch (kind)
+        {
+            // Высокая тумба: 2.8 юнита — прыжок 2.2 её не берёт, только объезд.
+            case Obstacle.Kind.Block:
+                trigger.center = new Vector3(0f, 1.4f, 0f);
+                trigger.size = new Vector3(1.7f, 2.8f, 0.7f);
+                Box("Visual", root.transform, new Vector3(1.7f, 2.8f, 0.7f),
+                    new Vector3(0f, 1.4f, 0f), mats.Block);
+                break;
+
+            // Низкий барьер по колено: перепрыгнуть.
+            case Obstacle.Kind.JumpOver:
+                trigger.center = new Vector3(0f, 0.45f, 0f);
+                trigger.size = new Vector3(1.7f, 0.9f, 0.7f);
+                Box("Visual", root.transform, new Vector3(1.7f, 0.9f, 0.7f),
+                    new Vector3(0f, 0.45f, 0f), mats.Jump);
+                break;
+
+            // Балка сверху: низ на 1.1, стоя игрок (2.0) задевает, в подкате (0.9) проезжает.
+            case Obstacle.Kind.SlideUnder:
+                trigger.center = new Vector3(0f, 1.45f, 0f);
+                trigger.size = new Vector3(1.7f, 0.7f, 0.7f);
+                Box("Visual", root.transform, new Vector3(1.7f, 0.7f, 0.7f),
+                    new Vector3(0f, 1.45f, 0f), mats.Slide);
+
+                // Стойки — только для читаемости, коллайдеров у них нет.
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    Box($"Post_{side}", root.transform, new Vector3(0.16f, 1.8f, 0.16f),
+                        new Vector3(side * 0.93f, 0.9f, 0f), mats.Slide);
+                }
+                break;
+        }
+
+        string path = $"{ObstaclesFolder}/{prefabName}.prefab";
+        GameObject saved = PrefabUtility.SaveAsPrefabAsset(root, path);
+        Object.DestroyImmediate(root);
+
+        return saved.GetComponent<Obstacle>();
     }
 
     // ============================================================ длинный пол
@@ -317,6 +440,7 @@ public static class RunnerSceneBuilder
 
         var swipe = player.AddComponent<SwipeDetector>();
         var controller = player.AddComponent<PlayerController>();
+        player.AddComponent<PlayerCollision>();
         var hud = player.AddComponent<DebugHud>();
 
         var so = new SerializedObject(controller);
