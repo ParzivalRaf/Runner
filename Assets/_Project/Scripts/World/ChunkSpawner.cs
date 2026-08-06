@@ -105,7 +105,15 @@ public class ChunkSpawner : MonoBehaviour
         Chunk prefab = PickPrefab();
         if (prefab == null) return;
 
-        GameObject instance = _pools[prefab].Get();
+        // Подстраховка: если пул почему-то отсутствует (например, Unity
+        // перезагрузила скрипты прямо во время Play), создаём его на лету.
+        if (!_pools.TryGetValue(prefab, out ObjectPool pool))
+        {
+            pool = new ObjectPool(prefab.gameObject, _poolRoot, 0);
+            _pools[prefab] = pool;
+        }
+
+        GameObject instance = pool.Get();
         instance.transform.SetPositionAndRotation(new Vector3(0f, 0f, _nextSpawnZ),
                                                   Quaternion.identity);
 

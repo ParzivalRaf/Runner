@@ -72,6 +72,14 @@ public class DebugHud : MonoBehaviour
 
         if (spawner != null) text += $"\nчанков {spawner.ActiveChunkCount}";
 
+        ScoreManager score = ScoreManager.Instance;
+        if (score != null)
+        {
+            text += $"\n\nмонеты {score.CoinsThisRun}" +
+                    $"\nрекорд {score.BestDistance:F0} м" +
+                    $"\nвсего монет {score.TotalCoins}";
+        }
+
         float margin = Screen.height * 0.04f;
         var rect = new Rect(margin, margin, Screen.width - margin * 2f, Screen.height * 0.35f);
 
@@ -89,9 +97,16 @@ public class DebugHud : MonoBehaviour
         GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
         GUI.color = previous;
 
-        var rect = new Rect(0f, Screen.height * 0.32f, Screen.width, Screen.height * 0.36f);
-        GUI.Label(rect,
-                  $"ВРЕЗАЛСЯ\n\n{game.LastRunDistance:F0} м\n\nтап или любая клавиша — заново",
-                  _big);
+        ScoreManager score = ScoreManager.Instance;
+
+        string message = "ВРЕЗАЛСЯ\n\n";
+        if (score != null && score.IsNewDistanceRecord) message = "НОВЫЙ РЕКОРД!\n\n";
+
+        message += $"{game.LastRunDistance:F0} м";
+        if (score != null) message += $"\nмонет за забег: {score.CoinsThisRun}";
+        message += "\n\nтап или пробел — заново";
+
+        var rect = new Rect(0f, Screen.height * 0.3f, Screen.width, Screen.height * 0.4f);
+        GUI.Label(rect, message, _big);
     }
 }

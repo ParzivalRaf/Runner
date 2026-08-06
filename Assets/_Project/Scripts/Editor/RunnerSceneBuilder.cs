@@ -139,6 +139,102 @@ public static class RunnerSceneBuilder
         Finish(player, "Сцена M3 собрана: препятствия, столкновения, рестарт. Жми Play.");
     }
 
+    // ===================================================================== M4
+
+    [MenuItem("Tools/Runner/M4 — монеты, очки и сохранения")]
+    public static void BuildM4Scene()
+    {
+        DeleteIfExists("Track");
+        DeleteIfExists("ChunkSpawner");
+        DeleteIfExists("Player");
+        DeleteIfExists("GameManager");
+
+        Materials mats = LoadMaterials();
+
+        List<Chunk> chunkPrefabs = CreateChunkPrefabs(mats);
+        Obstacle block = CreateObstaclePrefab("Obstacle_Block", Obstacle.Kind.Block, mats);
+        Obstacle jump = CreateObstaclePrefab("Obstacle_Jump", Obstacle.Kind.JumpOver, mats);
+        Obstacle slide = CreateObstaclePrefab("Obstacle_Slide", Obstacle.Kind.SlideUnder, mats);
+        Coin coin = CreateCoinPrefab(mats);
+
+        GameObject player = BuildPlayer(mats);
+        SetUpCamera(player.transform);
+        SetUpLight();
+
+        var managerGo = new GameObject("GameManager");
+        managerGo.AddComponent<GameManager>();
+        var scoreManager = managerGo.AddComponent<ScoreManager>();
+
+        var scoreSo = new SerializedObject(scoreManager);
+        scoreSo.FindProperty("player").objectReferenceValue = player.GetComponent<PlayerController>();
+        scoreSo.ApplyModifiedPropertiesWithoutUndo();
+
+        var spawnerGo = new GameObject("ChunkSpawner");
+        var chunkSpawner = spawnerGo.AddComponent<ChunkSpawner>();
+        var obstacleSpawner = spawnerGo.AddComponent<ObstacleSpawner>();
+
+        var obstacleSo = new SerializedObject(obstacleSpawner);
+        obstacleSo.FindProperty("blockPrefab").objectReferenceValue = block;
+        obstacleSo.FindProperty("jumpPrefab").objectReferenceValue = jump;
+        obstacleSo.FindProperty("slidePrefab").objectReferenceValue = slide;
+        obstacleSo.FindProperty("coinPrefab").objectReferenceValue = coin;
+        obstacleSo.ApplyModifiedPropertiesWithoutUndo();
+
+        var so = new SerializedObject(chunkSpawner);
+        so.FindProperty("player").objectReferenceValue = player.transform;
+        so.FindProperty("obstacleSpawner").objectReferenceValue = obstacleSpawner;
+
+        SerializedProperty prefabsProp = so.FindProperty("chunkPrefabs");
+        prefabsProp.arraySize = chunkPrefabs.Count;
+        for (int i = 0; i < chunkPrefabs.Count; i++)
+            prefabsProp.GetArrayElementAtIndex(i).objectReferenceValue = chunkPrefabs[i];
+
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        var hud = player.GetComponent<DebugHud>();
+        if (hud != null)
+        {
+            var hudSo = new SerializedObject(hud);
+            hudSo.FindProperty("spawner").objectReferenceValue = chunkSpawner;
+            hudSo.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        Finish(player, "Сцена M4 собрана: монеты, счёт, сохранение рекорда. Жми Play.");
+    }
+
+    private static Coin CreateCoinPrefab(Materials mats)
+    {
+        EnsureFolder(ProjectRoot + "/Prefabs");
+        EnsureFolder(ProjectRoot + "/Prefabs/Pickups");
+
+        var root = new GameObject("Coin");
+        Coin coin = root.AddComponent<Coin>();
+
+        var trigger = root.AddComponent<SphereCollider>();
+        trigger.isTrigger = true;
+        trigger.radius = 0.6f;
+
+        // Монета — сплюснутый цилиндр, поставленный на ребро.
+        GameObject visual = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        visual.name = "Visual";
+        visual.transform.SetParent(root.transform, false);
+        visual.transform.localPosition = Vector3.zero;
+        visual.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        visual.transform.localScale = new Vector3(0.7f, 0.05f, 0.7f);
+        visual.GetComponent<Renderer>().sharedMaterial = mats.Coin;
+        Object.DestroyImmediate(visual.GetComponent<Collider>());
+
+        var so = new SerializedObject(coin);
+        so.FindProperty("visual").objectReferenceValue = visual.transform;
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        string path = $"{ProjectRoot}/Prefabs/Pickups/Coin.prefab";
+        GameObject saved = PrefabUtility.SaveAsPrefabAsset(root, path);
+        Object.DestroyImmediate(root);
+
+        return saved.GetComponent<Coin>();
+    }
+
     // ============================================================== материалы
 
     private struct Materials
@@ -151,6 +247,7 @@ public static class RunnerSceneBuilder
         public Material Block;
         public Material Jump;
         public Material Slide;
+        public Material Coin;
     }
 
     private static Materials LoadMaterials()
@@ -167,7 +264,8 @@ public static class RunnerSceneBuilder
             // Красный — объехать, жёлтый — прыгнуть, синий — подкат.
             Block = GetOrCreateMaterial("M_ObstacleBlock", new Color(0.62f, 0.26f, 0.26f)),
             Jump = GetOrCreateMaterial("M_ObstacleJump", new Color(0.80f, 0.64f, 0.20f)),
-            Slide = GetOrCreateMaterial("M_ObstacleSlide", new Color(0.24f, 0.44f, 0.70f))
+            Slide = GetOrCreateMaterial("M_ObstacleSlide", new Color(0.24f, 0.44f, 0.70f)),
+            Coin = GetOrCreateMaterial("M_Coin", new Color(0.95f, 0.78f, 0.20f))
         };
     }
 
