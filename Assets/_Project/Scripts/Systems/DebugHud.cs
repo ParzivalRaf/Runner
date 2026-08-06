@@ -10,6 +10,7 @@ using UnityEngine;
 public class DebugHud : MonoBehaviour
 {
     [SerializeField] private PlayerController player;
+    [SerializeField] private ChunkSpawner spawner;
     [SerializeField] private bool show = true;
 
     private GUIStyle _style;
@@ -17,6 +18,7 @@ public class DebugHud : MonoBehaviour
     private void Awake()
     {
         if (player == null) player = GetComponent<PlayerController>();
+        if (spawner == null) spawner = FindFirstObjectByType<ChunkSpawner>();
     }
 
     private void OnGUI()
@@ -40,7 +42,10 @@ public class DebugHud : MonoBehaviour
         string text = $"{player.Distance:F0} м\n" +
                       $"скорость {player.CurrentSpeed:F1}\n" +
                       $"полоса {player.CurrentLane}\n" +
-                      $"{state}";
+                      $"{state}\n" +
+                      $"FPS {1f / Mathf.Max(0.0001f, Time.smoothDeltaTime):F0}";
+
+        if (spawner != null) text += $"\nчанков {spawner.ActiveChunkCount}";
 
         float margin = Screen.height * 0.04f;
         var rect = new Rect(margin, margin, Screen.width - margin * 2f, Screen.height * 0.3f);
