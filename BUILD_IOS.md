@@ -87,11 +87,22 @@ Unity переимпортирует все текстуры и шейдеры �
    Если пишет, что идентификатор занят — поменяй на что-нибудь уникальное,
    например `com.RafaelGames.Runner2`.
 
-**Заодно узнай Team ID** — он пригодится, чтобы больше сюда не заходить:
-Xcode → Settings → Accounts → выбери Apple ID → справа внизу под именем
-команды будет строка из 10 символов вроде `A1B2C3D4E5`.
-Впиши её в Unity: Project Settings → Player → iOS → Signing Team ID.
-После этого будет работать Build And Run одной кнопкой.
+### Про Team ID
+
+Он **не нужен для первой сборки** — подписи в Xcode достаточно. Это только
+удобство на будущее: с ним заработает Build And Run прямо из Unity, без
+захода в Xcode.
+
+В новых версиях Xcode в панели Apple Accounts его больше не показывают.
+Достать можно после первой успешной сборки, любым из двух способов:
+
+- В Терминале:
+  `grep -m1 DEVELOPMENT_TEAM ~/Desktop/Runner_iOS/Unity-iPhone.xcodeproj/project.pbxproj`
+- В Xcode: верхний **Unity-iPhone** → **Build Settings** → в поиске набрать
+  `Development Team`
+
+Строка из 10 символов вроде `A1B2C3D4E5`. Вписывается в Unity:
+Project Settings → Player → iOS → **Signing Team ID**.
 
 ---
 
