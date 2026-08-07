@@ -19,6 +19,11 @@ public class ScoreManager : MonoBehaviour
 
     private bool _resultSaved;
 
+    // Бонус персонажа к монетам дробный (+10%), а монеты целые. Копим остаток
+    // здесь и отдаём его игроку, как только он дорастает до целой монеты —
+    // иначе при номинале в 1 монету прибавка всегда округлялась бы в ноль.
+    private float _bonusCarry;
+
     private void Awake()
     {
         Instance = this;
@@ -42,6 +47,7 @@ public class ScoreManager : MonoBehaviour
         CoinsThisRun = 0;
         IsNewDistanceRecord = false;
         _resultSaved = false;
+        _bonusCarry = 0f;
     }
 
     public void AddCoins(int amount)
@@ -49,7 +55,24 @@ public class ScoreManager : MonoBehaviour
         if (amount <= 0) return;
         if (GameManager.Instance != null && !GameManager.Instance.IsRunning) return;
 
-        CoinsThisRun += amount;
+        CoinsThisRun += amount + CharacterBonusFor(amount);
+    }
+
+    /// <summary>Целая часть прибавки персонажа, с переносом остатка на следующий раз.</summary>
+    private int CharacterBonusFor(int amount)
+    {
+        float rate = CharacterManager.Instance != null
+            ? CharacterManager.Instance.CoinBonusRate
+            : 0f;
+
+        if (rate <= 0f) return 0;
+
+        _bonusCarry += amount * rate;
+
+        int whole = Mathf.FloorToInt(_bonusCarry);
+        _bonusCarry -= whole;
+
+        return whole;
     }
 
     private void HandleGameOver()

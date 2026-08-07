@@ -68,7 +68,9 @@ public class PowerUpManager : MonoBehaviour
     {
         int i = (int)type;
 
-        float duration = BaseDuration(type) + UpgradeShop.BonusSecondsFor(type);
+        float duration = BaseDuration(type)
+                       + UpgradeShop.BonusSecondsFor(type)
+                       + CharacterExtraSeconds();
 
         // Повторный подбор не складывается, а обновляет таймер целиком —
         // так игрок не может накопить минуту неуязвимости.
@@ -86,6 +88,13 @@ public class PowerUpManager : MonoBehaviour
 
         ApplyToPlayer();
     }
+
+    /// <summary>
+    /// Прибавка от способности персонажа. В отличие от апгрейдов магазина,
+    /// она действует на все четыре бонуса, а не только на магнит и кофе.
+    /// </summary>
+    private static float CharacterExtraSeconds() =>
+        CharacterManager.Instance != null ? CharacterManager.Instance.ExtraPowerUpSeconds : 0f;
 
     private float BaseDuration(PowerUpType type)
     {

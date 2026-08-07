@@ -29,6 +29,14 @@ public class PlayerCollision : MonoBehaviour
             return;
         }
 
+        // Щит персонажа — последний шанс. Тратится молча, одно столкновение
+        // за забег, и препятствие исчезает так же, как под кофе.
+        if (CharacterManager.Instance != null && CharacterManager.Instance.TryConsumeShield())
+        {
+            obstacle.gameObject.SetActive(false);
+            return;
+        }
+
         GameManager.Instance.GameOver();
     }
 }

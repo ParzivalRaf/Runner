@@ -20,11 +20,14 @@ public class UIManager : MonoBehaviour
     [SerializeField] private GameObject gameOverPanel;
     [SerializeField] private GameObject shopPanel;
     [SerializeField] private GameObject settingsPanel;
+    [SerializeField] private GameObject charactersPanel;
 
     [Header("Меню")]
     [SerializeField] private Text menuBestText;
     [SerializeField] private Text menuCoinsText;
+    [SerializeField] private Text menuCharacterText;
     [SerializeField] private Button playButton;
+    [SerializeField] private Button charactersButton;
     [SerializeField] private Button shopButton;
     [SerializeField] private Button settingsButton;
 
@@ -69,16 +72,34 @@ public class UIManager : MonoBehaviour
     [SerializeField] private Text resetLabel;
     [SerializeField] private Button settingsCloseButton;
 
+    [Header("Персонажи")]
+    [SerializeField] private Text charactersCoinsText;
+    [SerializeField] private Image charactersPortrait;
+    [SerializeField] private Text charactersNameText;
+    [SerializeField] private Text charactersAbilityText;
+    [SerializeField] private Text charactersPhraseText;
+    [SerializeField] private Text charactersCountText;
+    [SerializeField] private Button charactersPrevButton;
+    [SerializeField] private Button charactersNextButton;
+    [SerializeField] private Button charactersActionButton;
+    [SerializeField] private Text charactersActionLabel;
+    [SerializeField] private Button charactersCloseButton;
+
     [Header("Ссылки")]
     [SerializeField] private PlayerController player;
     [SerializeField] private ScoreManager score;
+    [SerializeField] private CharacterManager characters;
 
     private float _resetConfirmUntil;
+
+    /// <summary>Кто сейчас показан в карусели. Не обязательно выбранный.</summary>
+    private int _characterIndex;
 
     private void Awake()
     {
         if (player == null) player = FindFirstObjectByType<PlayerController>();
         if (score == null) score = FindFirstObjectByType<ScoreManager>();
+        if (characters == null) characters = FindFirstObjectByType<CharacterManager>();
 
         Bind(playButton, OnPlayPressed);
         Bind(pauseButton, OnPausePressed);
@@ -100,6 +121,12 @@ public class UIManager : MonoBehaviour
 
             shopBuyButtons[i].onClick.AddListener(() => BuyUpgrade(index));
         }
+
+        Bind(charactersButton, OpenCharacters);
+        Bind(charactersCloseButton, CloseOverlays);
+        Bind(charactersPrevButton, ShowPreviousCharacter);
+        Bind(charactersNextButton, ShowNextCharacter);
+        Bind(charactersActionButton, BuyOrSelectCharacter);
 
         Bind(musicButton, ToggleMusic);
         Bind(soundButton, ToggleSound);
@@ -173,6 +200,14 @@ public class UIManager : MonoBehaviour
 
         if (menuBestText != null) menuBestText.text = $"Рекорд: {data.bestDistance:F0} м";
         if (menuCoinsText != null) menuCoinsText.text = $"Монет: {data.totalCoins}";
+
+        if (menuCharacterText != null)
+        {
+            CharacterData selected = characters != null ? characters.Selected : null;
+
+            menuCharacterText.text = selected != null ? $"бежит: {selected.DisplayName}" : "";
+            menuCharacterText.color = selected != null ? selected.Tint : Color.white;
+        }
     }
 
     private void RefreshGameOver()
@@ -225,6 +260,7 @@ public class UIManager : MonoBehaviour
         Show(menuPanel, false);
         Show(shopPanel, true);
         Show(settingsPanel, false);
+        Show(charactersPanel, false);
         RefreshShop();
     }
 
@@ -266,6 +302,113 @@ public class UIManager : MonoBehaviour
         RefreshMenu();
     }
 
+    // ------------------------------------------------------------- персонажи
+
+    private void OpenCharacters()
+    {
+        Show(menuPanel, false);
+        Show(charactersPanel, true);
+        Show(shopPanel, false);
+        Show(settingsPanel, false);
+
+        // Открываем карусель на том, кем сейчас бегаем, а не на первом.
+        if (characters != null && characters.Database != null && characters.Selected != null)
+        {
+            int index = characters.Database.IndexOf(characters.Selected.Id);
+            if (index >= 0) _characterIndex = index;
+        }
+
+        RefreshCharacters();
+    }
+
+    private void ShowPreviousCharacter() => StepCharacter(-1);
+    private void ShowNextCharacter() => StepCharacter(+1);
+
+    /// <summary>Карусель закольцована: с последнего листаем на первого.</summary>
+    private void StepCharacter(int delta)
+    {
+        int count = characters != null && characters.Database != null
+            ? characters.Database.Count
+            : 0;
+
+        if (count <= 0) return;
+
+        _characterIndex = ((_characterIndex + delta) % count + count) % count;
+        RefreshCharacters();
+    }
+
+    private CharacterData CurrentCharacter =>
+        characters != null && characters.Database != null
+            ? characters.Database.Get(_characterIndex)
+            : null;
+
+    private void RefreshCharacters()
+    {
+        if (charactersCoinsText != null)
+            charactersCoinsText.text = $"Монет: {SaveSystem.Data.totalCoins}";
+
+        int count = characters != null && characters.Database != null
+            ? characters.Database.Count
+            : 0;
+
+        if (charactersCountText != null)
+            charactersCountText.text = count > 0 ? $"{_characterIndex + 1} / {count}" : "";
+
+        CharacterData character = CurrentCharacter;
+
+        if (character == null)
+        {
+            // Список пуст — не оставляем интерфейс в непонятном состоянии.
+            if (charactersNameText != null) charactersNameText.text = "нет персонажей";
+            if (charactersAbilityText != null) charactersAbilityText.text = "";
+            if (charactersPhraseText != null) charactersPhraseText.text = "";
+            if (charactersActionButton != null) charactersActionButton.interactable = false;
+            if (charactersActionLabel != null) charactersActionLabel.text = "—";
+            return;
+        }
+
+        bool unlocked = characters.IsUnlocked(character);
+        bool isSelected = characters.Selected != null && characters.Selected.Id == character.Id;
+
+        if (charactersPortrait != null)
+            charactersPortrait.color = unlocked
+                ? character.Tint
+                // Закрытого показываем силуэтом: цвет виден, деталей нет.
+                : Color.Lerp(character.Tint, new Color(0.1f, 0.1f, 0.12f), 0.75f);
+
+        if (charactersNameText != null)
+            charactersNameText.text = unlocked ? character.DisplayName : "???";
+
+        if (charactersAbilityText != null)
+            charactersAbilityText.text = character.AbilityDescription;
+
+        if (charactersPhraseText != null)
+            charactersPhraseText.text = unlocked ? character.CatchPhrase : "";
+
+        if (charactersActionLabel != null)
+        {
+            if (isSelected) charactersActionLabel.text = "ВЫБРАН";
+            else if (unlocked) charactersActionLabel.text = "ВЫБРАТЬ";
+            else charactersActionLabel.text = $"КУПИТЬ  {character.Price}";
+        }
+
+        if (charactersActionButton != null)
+            charactersActionButton.interactable =
+                !isSelected && (unlocked || characters.CanBuy(character));
+    }
+
+    private void BuyOrSelectCharacter()
+    {
+        CharacterData character = CurrentCharacter;
+        if (character == null || characters == null) return;
+
+        if (characters.IsUnlocked(character)) characters.Select(character);
+        else characters.Buy(character);
+
+        RefreshCharacters();
+        RefreshMenu();
+    }
+
     // ------------------------------------------------------------- настройки
 
     private void OpenSettings()
@@ -273,6 +416,7 @@ public class UIManager : MonoBehaviour
         Show(menuPanel, false);
         Show(settingsPanel, true);
         Show(shopPanel, false);
+        Show(charactersPanel, false);
         RefreshSettings();
     }
 
@@ -326,15 +470,21 @@ public class UIManager : MonoBehaviour
         _resetConfirmUntil = 0f;
         SaveSystem.ResetProgress();
 
+        // Список открытых персонажей обнулился — выбранный мог стать закрытым.
+        if (characters != null) characters.ReloadFromSave();
+        _characterIndex = 0;
+
         RefreshSettings();
         RefreshMenu();
         RefreshShop();
+        RefreshCharacters();
     }
 
     private void CloseOverlays()
     {
         Show(shopPanel, false);
         Show(settingsPanel, false);
+        Show(charactersPanel, false);
         _resetConfirmUntil = 0f;
 
         bool inMenu = GameManager.Instance == null ||

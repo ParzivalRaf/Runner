@@ -85,6 +85,13 @@ public class PlayerController : MonoBehaviour
     /// <summary>Множитель ВЫСОТЫ прыжка от бонусов. Выставляет PowerUpManager.</summary>
     public float ExternalJumpMultiplier { get; set; } = 1f;
 
+    /// <summary>
+    /// Прибавка к стартовой скорости от способности персонажа, юниты в секунду.
+    /// Выставляет GameManager перед забегом. Действует только на старт:
+    /// потолок maxSpeed остаётся общим для всех.
+    /// </summary>
+    public float StartSpeedBonus { get; set; }
+
     /// <summary>Фактическая скорость с учётом бонусов.</summary>
     public float CurrentSpeed => _currentSpeed * ExternalSpeedMultiplier;
 
@@ -168,7 +175,7 @@ public class PlayerController : MonoBehaviour
         ExternalSpeedMultiplier = 1f;
         ExternalJumpMultiplier = 1f;
 
-        _currentSpeed = startSpeed;
+        _currentSpeed = Mathf.Min(maxSpeed, startSpeed + Mathf.Max(0f, StartSpeedBonus));
         _distance = Mathf.Max(0f, startDistance);
 
         _currentLane = 1;

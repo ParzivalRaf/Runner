@@ -23,6 +23,7 @@ public class GameManager : MonoBehaviour
     [SerializeField] private ObstacleSpawner obstacleSpawner;
     [SerializeField] private ScoreManager scoreManager;
     [SerializeField] private PowerUpManager powerUpManager;
+    [SerializeField] private CharacterManager characterManager;
     [SerializeField] private CameraFollow cameraFollow;
 
     [Header("Отладка")]
@@ -53,6 +54,7 @@ public class GameManager : MonoBehaviour
         if (obstacleSpawner == null) obstacleSpawner = FindFirstObjectByType<ObstacleSpawner>();
         if (scoreManager == null) scoreManager = GetComponent<ScoreManager>();
         if (powerUpManager == null) powerUpManager = GetComponent<PowerUpManager>();
+        if (characterManager == null) characterManager = GetComponent<CharacterManager>();
         if (cameraFollow == null) cameraFollow = FindFirstObjectByType<CameraFollow>();
     }
 
@@ -127,6 +129,15 @@ public class GameManager : MonoBehaviour
     {
         if (obstacleSpawner != null) obstacleSpawner.ResetRun();
         if (powerUpManager != null) powerUpManager.ResetRun();
+
+        // Персонажа сбрасываем ДО игрока: щит перезаряжается, а прибавка
+        // к стартовой скорости должна быть выставлена раньше, чем player
+        // прочитает её в своём ResetRun.
+        if (characterManager != null)
+        {
+            characterManager.ResetRun();
+            if (player != null) player.StartSpeedBonus = characterManager.StartSpeedBonus;
+        }
 
         // Апгрейд «рывок на старте» просто начисляет фору в метрах:
         // счётчик стартует не с нуля, а значит и сложность сразу выше.

@@ -22,6 +22,7 @@ public static class RunnerSceneBuilder
     private const string MaterialsFolder = ProjectRoot + "/Materials";
     private const string ChunksFolder = ProjectRoot + "/Prefabs/Chunks";
     private const string ObstaclesFolder = ProjectRoot + "/Prefabs/Obstacles";
+    private const string CharactersFolder = ProjectRoot + "/Characters";
 
     private const float LaneDistance = 2.5f;
     private const float TrackWidth = 12f;
@@ -314,6 +315,12 @@ public static class RunnerSceneBuilder
         var gameManager = managerGo.AddComponent<GameManager>();
         var scoreManager = managerGo.AddComponent<ScoreManager>();
         var powerUpManager = managerGo.AddComponent<PowerUpManager>();
+        var characterManager = managerGo.AddComponent<CharacterManager>();
+
+        var charSo = new SerializedObject(characterManager);
+        charSo.FindProperty("database").objectReferenceValue = EnsureCharacterDatabase();
+        charSo.FindProperty("playerVisual").objectReferenceValue = player.transform.Find("Visual");
+        charSo.ApplyModifiedPropertiesWithoutUndo();
 
         var scoreSo = new SerializedObject(scoreManager);
         scoreSo.FindProperty("player").objectReferenceValue = player.GetComponent<PlayerController>();
@@ -329,6 +336,7 @@ public static class RunnerSceneBuilder
         gameSo.FindProperty("obstacleSpawner").objectReferenceValue = obstacleSpawner;
         gameSo.FindProperty("scoreManager").objectReferenceValue = scoreManager;
         gameSo.FindProperty("powerUpManager").objectReferenceValue = powerUpManager;
+        gameSo.FindProperty("characterManager").objectReferenceValue = characterManager;
         gameSo.FindProperty("cameraFollow").objectReferenceValue = follow;
         gameSo.ApplyModifiedPropertiesWithoutUndo();
 
@@ -343,9 +351,9 @@ public static class RunnerSceneBuilder
             hudSo.ApplyModifiedPropertiesWithoutUndo();
         }
 
-        BuildUserInterface(player.GetComponent<PlayerController>(), scoreManager);
+        BuildUserInterface(player.GetComponent<PlayerController>(), scoreManager, characterManager);
 
-        Finish(player, "Полная сцена собрана: меню, HUD, пауза, бонусы, магазин, настройки. Жми Play.");
+        Finish(player, "Полная сцена собрана: меню, HUD, пауза, бонусы, магазин, персонажи, настройки. Жми Play.");
     }
 
     private static PowerUp CreatePowerUpPrefab(PowerUpType type)
@@ -388,6 +396,89 @@ public static class RunnerSceneBuilder
         return saved.GetComponent<PowerUp>();
     }
 
+    // =========================================================== персонажи
+
+    /// <summary>
+    /// Создаёт список персонажей, если его ещё нет.
+    ///
+    /// Уже существующие ассеты НЕ перезаписываются — иначе пересборка сцены
+    /// стирала бы переименованных учителей и подставленные модели.
+    /// Хочешь начать заново — удали папку Characters руками.
+    /// </summary>
+    private static CharacterDatabase EnsureCharacterDatabase()
+    {
+        EnsureFolder(CharactersFolder);
+
+        string databasePath = CharactersFolder + "/CharacterDatabase.asset";
+
+        var existing = AssetDatabase.LoadAssetAtPath<CharacterDatabase>(databasePath);
+        if (existing != null) return existing;
+
+        var characters = new List<CharacterData>
+        {
+            EnsureCharacter("rookie", "Новичок", "Так, я побежал!",
+                            new Color(0.72f, 0.74f, 0.78f), price: 0, free: true,
+                            CharacterAbility.None, 0f),
+
+            EnsureCharacter("pe", "Физрук", "Ещё круг — и по домам!",
+                            new Color(0.40f, 0.80f, 0.45f), price: 400, free: false,
+                            CharacterAbility.FastStart, 4f),
+
+            EnsureCharacter("math", "Математичка", "Дистанция — это интеграл скорости.",
+                            new Color(0.35f, 0.62f, 0.95f), price: 900, free: false,
+                            CharacterAbility.CoinBonus, 0.10f),
+
+            EnsureCharacter("chem", "Химичка", "Не трогай, оно ещё реагирует!",
+                            new Color(0.72f, 0.42f, 0.88f), price: 1500, free: false,
+                            CharacterAbility.LongerPowerUps, 2f),
+
+            EnsureCharacter("principal", "Директор", "В моей школе не бегают. Кроме сегодня.",
+                            new Color(0.90f, 0.35f, 0.35f), price: 2500, free: false,
+                            CharacterAbility.Shield, 1f)
+        };
+
+        var database = ScriptableObject.CreateInstance<CharacterDatabase>();
+        AssetDatabase.CreateAsset(database, databasePath);
+
+        var so = new SerializedObject(database);
+        SerializedProperty list = so.FindProperty("characters");
+        list.arraySize = characters.Count;
+
+        for (int i = 0; i < characters.Count; i++)
+            list.GetArrayElementAtIndex(i).objectReferenceValue = characters[i];
+
+        so.ApplyModifiedPropertiesWithoutUndo();
+        AssetDatabase.SaveAssets();
+
+        return database;
+    }
+
+    private static CharacterData EnsureCharacter(string id, string displayName, string phrase,
+                                                 Color tint, int price, bool free,
+                                                 CharacterAbility ability, float abilityValue)
+    {
+        string path = $"{CharactersFolder}/Character_{id}.asset";
+
+        var existing = AssetDatabase.LoadAssetAtPath<CharacterData>(path);
+        if (existing != null) return existing;
+
+        var asset = ScriptableObject.CreateInstance<CharacterData>();
+        AssetDatabase.CreateAsset(asset, path);
+
+        var so = new SerializedObject(asset);
+        so.FindProperty("id").stringValue = id;
+        so.FindProperty("displayName").stringValue = displayName;
+        so.FindProperty("catchPhrase").stringValue = phrase;
+        so.FindProperty("tint").colorValue = tint;
+        so.FindProperty("price").intValue = price;
+        so.FindProperty("unlockedByDefault").boolValue = free;
+        so.FindProperty("ability").enumValueIndex = (int)ability;
+        so.FindProperty("abilityValue").floatValue = abilityValue;
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        return asset;
+    }
+
     // ================================================================== UI
 
     private const float UIReferenceWidth = 1080f;
@@ -398,7 +489,8 @@ public static class RunnerSceneBuilder
     private static readonly Color ButtonSecondary = new Color(0.24f, 0.28f, 0.36f, 1f);
     private static readonly Color CoinGold = new Color(0.98f, 0.82f, 0.28f, 1f);
 
-    private static void BuildUserInterface(PlayerController player, ScoreManager score)
+    private static void BuildUserInterface(PlayerController player, ScoreManager score,
+                                           CharacterManager characters)
     {
         // Система событий. Обязательно InputSystemUIInputModule, а не старый
         // StandaloneInputModule: проект переведён на новый Input System,
@@ -430,7 +522,8 @@ public static class RunnerSceneBuilder
         safeArea.AddComponent<SafeAreaFitter>();
 
         GameObject menu = BuildMenuPanel(safeArea.transform, out Text menuBest,
-                                         out Text menuCoins, out Button playButton,
+                                         out Text menuCoins, out Text menuCharacter,
+                                         out Button playButton, out Button charactersButton,
                                          out Button shopButton, out Button settingsButton);
 
         GameObject hudPanel = BuildHudPanel(safeArea.transform, out Text distanceText,
@@ -457,6 +550,8 @@ public static class RunnerSceneBuilder
                                                  out Button reset, out Text resetLabel,
                                                  out Button settingsClose);
 
+        CharacterPanelRefs charactersUi = BuildCharactersPanel(safeArea.transform);
+
         var so = new SerializedObject(ui);
         so.FindProperty("menuPanel").objectReferenceValue = menu;
         so.FindProperty("hudPanel").objectReferenceValue = hudPanel;
@@ -465,9 +560,13 @@ public static class RunnerSceneBuilder
         so.FindProperty("shopPanel").objectReferenceValue = shop;
         so.FindProperty("settingsPanel").objectReferenceValue = settings;
 
+        so.FindProperty("charactersPanel").objectReferenceValue = charactersUi.Panel;
+
         so.FindProperty("menuBestText").objectReferenceValue = menuBest;
         so.FindProperty("menuCoinsText").objectReferenceValue = menuCoins;
+        so.FindProperty("menuCharacterText").objectReferenceValue = menuCharacter;
         so.FindProperty("playButton").objectReferenceValue = playButton;
+        so.FindProperty("charactersButton").objectReferenceValue = charactersButton;
         so.FindProperty("shopButton").objectReferenceValue = shopButton;
         so.FindProperty("settingsButton").objectReferenceValue = settingsButton;
 
@@ -504,8 +603,21 @@ public static class RunnerSceneBuilder
         so.FindProperty("resetLabel").objectReferenceValue = resetLabel;
         so.FindProperty("settingsCloseButton").objectReferenceValue = settingsClose;
 
+        so.FindProperty("charactersCoinsText").objectReferenceValue = charactersUi.Coins;
+        so.FindProperty("charactersPortrait").objectReferenceValue = charactersUi.Portrait;
+        so.FindProperty("charactersNameText").objectReferenceValue = charactersUi.Name;
+        so.FindProperty("charactersAbilityText").objectReferenceValue = charactersUi.Ability;
+        so.FindProperty("charactersPhraseText").objectReferenceValue = charactersUi.Phrase;
+        so.FindProperty("charactersCountText").objectReferenceValue = charactersUi.Count;
+        so.FindProperty("charactersPrevButton").objectReferenceValue = charactersUi.Prev;
+        so.FindProperty("charactersNextButton").objectReferenceValue = charactersUi.Next;
+        so.FindProperty("charactersActionButton").objectReferenceValue = charactersUi.Action;
+        so.FindProperty("charactersActionLabel").objectReferenceValue = charactersUi.ActionLabel;
+        so.FindProperty("charactersCloseButton").objectReferenceValue = charactersUi.Close;
+
         so.FindProperty("player").objectReferenceValue = player;
         so.FindProperty("score").objectReferenceValue = score;
+        so.FindProperty("characters").objectReferenceValue = characters;
         so.ApplyModifiedPropertiesWithoutUndo();
     }
 
@@ -520,7 +632,8 @@ public static class RunnerSceneBuilder
     }
 
     private static GameObject BuildMenuPanel(Transform parent, out Text bestText,
-                                             out Text coinsText, out Button playButton,
+                                             out Text coinsText, out Text characterText,
+                                             out Button playButton, out Button charactersButton,
                                              out Button shopButton, out Button settingsButton)
     {
         GameObject panel = UIPanel("MenuPanel", parent, PanelDim);
@@ -532,23 +645,31 @@ public static class RunnerSceneBuilder
                new Vector2(0.5f, 1f), new Vector2(0f, -520f), new Vector2(900f, 80f));
 
         bestText = UIText("Best", panel.transform, "Рекорд: 0 м", 52, TextAnchor.MiddleCenter,
-                          new Vector2(0.5f, 0.5f), new Vector2(0f, 300f), new Vector2(900f, 80f));
+                          new Vector2(0.5f, 0.5f), new Vector2(0f, 360f), new Vector2(900f, 80f));
 
         coinsText = UIText("Coins", panel.transform, "Монет: 0", 52, TextAnchor.MiddleCenter,
-                           new Vector2(0.5f, 0.5f), new Vector2(0f, 215f), new Vector2(900f, 80f));
+                           new Vector2(0.5f, 0.5f), new Vector2(0f, 280f), new Vector2(900f, 80f));
         coinsText.color = CoinGold;
 
+        characterText = UIText("Character", panel.transform, "", 42, TextAnchor.MiddleCenter,
+                               new Vector2(0.5f, 0.5f), new Vector2(0f, 205f),
+                               new Vector2(900f, 70f));
+
         playButton = UIButton("PlayButton", panel.transform, "ИГРАТЬ", 76, ButtonMain,
-                              new Vector2(0.5f, 0.5f), new Vector2(0f, 20f),
+                              new Vector2(0.5f, 0.5f), new Vector2(0f, 60f),
                               new Vector2(700f, 190f));
 
+        charactersButton = UIButton("CharactersButton", panel.transform, "ПЕРСОНАЖИ", 54,
+                                    ButtonSecondary, new Vector2(0.5f, 0.5f),
+                                    new Vector2(0f, -110f), new Vector2(560f, 140f));
+
         shopButton = UIButton("ShopButton", panel.transform, "МАГАЗИН", 54, ButtonSecondary,
-                              new Vector2(0.5f, 0.5f), new Vector2(0f, -170f),
+                              new Vector2(0.5f, 0.5f), new Vector2(0f, -270f),
                               new Vector2(560f, 140f));
 
         settingsButton = UIButton("SettingsButton", panel.transform, "НАСТРОЙКИ", 54,
                                   ButtonSecondary, new Vector2(0.5f, 0.5f),
-                                  new Vector2(0f, -330f), new Vector2(560f, 140f));
+                                  new Vector2(0f, -430f), new Vector2(560f, 140f));
 
         UIText("Hint", panel.transform,
                "свайпы: влево / вправо / вверх / вниз",
@@ -556,6 +677,102 @@ public static class RunnerSceneBuilder
                new Vector2(0.5f, 0f), new Vector2(0f, 180f), new Vector2(1000f, 70f));
 
         return panel;
+    }
+
+    /// <summary>
+    /// Ссылки на элементы экрана выбора. Структура вместо десятка out-параметров:
+    /// список полей будет расти, когда появятся портреты учителей.
+    /// </summary>
+    private struct CharacterPanelRefs
+    {
+        public GameObject Panel;
+        public Text Coins;
+        public Image Portrait;
+        public Text Name;
+        public Text Ability;
+        public Text Phrase;
+        public Text Count;
+        public Button Prev;
+        public Button Next;
+        public Button Action;
+        public Text ActionLabel;
+        public Button Close;
+    }
+
+    /// <summary>
+    /// Карусель персонажей. Портрет пока просто цветной квадрат: когда
+    /// появятся фотографии учителей, в этот же Image подставится спрайт,
+    /// а логика в UIManager не изменится.
+    /// </summary>
+    private static CharacterPanelRefs BuildCharactersPanel(Transform parent)
+    {
+        var refs = new CharacterPanelRefs();
+
+        GameObject panel = UIPanel("CharactersPanel", parent, PanelDim);
+        refs.Panel = panel;
+
+        UIText("Title", panel.transform, "ПЕРСОНАЖИ", 88, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 1f), new Vector2(0f, -260f), new Vector2(900f, 130f));
+
+        refs.Coins = UIText("Coins", panel.transform, "Монет: 0", 54, TextAnchor.MiddleCenter,
+                            new Vector2(0.5f, 1f), new Vector2(0f, -370f), new Vector2(900f, 80f));
+        refs.Coins.color = CoinGold;
+
+        // Портрет.
+        var portraitGo = new GameObject("Portrait", typeof(RectTransform));
+        portraitGo.transform.SetParent(panel.transform, false);
+
+        var portraitRect = (RectTransform)portraitGo.transform;
+        portraitRect.anchorMin = new Vector2(0.5f, 0.5f);
+        portraitRect.anchorMax = new Vector2(0.5f, 0.5f);
+        portraitRect.pivot = new Vector2(0.5f, 0.5f);
+        portraitRect.sizeDelta = new Vector2(420f, 420f);
+        portraitRect.anchoredPosition = new Vector2(0f, 280f);
+
+        refs.Portrait = portraitGo.AddComponent<Image>();
+        refs.Portrait.color = Color.white;
+        refs.Portrait.raycastTarget = false;
+
+        // Стрелки. Символы «<» и «>», а не ◀ ▶: встроенный шрифт
+        // LegacyRuntime не гарантирует наличие треугольников в кириллической сборке.
+        refs.Prev = UIButton("PrevButton", panel.transform, "<", 90, ButtonSecondary,
+                             new Vector2(0.5f, 0.5f), new Vector2(-380f, 280f),
+                             new Vector2(160f, 160f));
+
+        refs.Next = UIButton("NextButton", panel.transform, ">", 90, ButtonSecondary,
+                             new Vector2(0.5f, 0.5f), new Vector2(380f, 280f),
+                             new Vector2(160f, 160f));
+
+        refs.Count = UIText("Count", panel.transform, "1 / 1", 40, TextAnchor.MiddleCenter,
+                            new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(400f, 60f));
+        refs.Count.color = new Color(0.65f, 0.7f, 0.8f);
+
+        refs.Name = UIText("Name", panel.transform, "—", 64, TextAnchor.MiddleCenter,
+                           new Vector2(0.5f, 0.5f), new Vector2(0f, -60f), new Vector2(940f, 90f));
+
+        refs.Ability = UIText("Ability", panel.transform, "", 42, TextAnchor.MiddleCenter,
+                              new Vector2(0.5f, 0.5f), new Vector2(0f, -150f),
+                              new Vector2(940f, 70f));
+        refs.Ability.color = new Color(0.55f, 0.85f, 0.65f);
+
+        refs.Phrase = UIText("Phrase", panel.transform, "", 38, TextAnchor.MiddleCenter,
+                             new Vector2(0.5f, 0.5f), new Vector2(0f, -250f),
+                             new Vector2(880f, 120f));
+        refs.Phrase.color = new Color(0.75f, 0.78f, 0.86f);
+        refs.Phrase.fontStyle = FontStyle.Italic;
+        // Длинную фразу переносим по словам, иначе она вылезет за экран.
+        refs.Phrase.horizontalOverflow = HorizontalWrapMode.Wrap;
+
+        refs.Action = UIButton("ActionButton", panel.transform, "ВЫБРАТЬ", 52, ButtonMain,
+                               new Vector2(0.5f, 0.5f), new Vector2(0f, -420f),
+                               new Vector2(620f, 160f));
+        refs.ActionLabel = refs.Action.GetComponentInChildren<Text>();
+
+        refs.Close = UIButton("CloseButton", panel.transform, "НАЗАД", 58, ButtonSecondary,
+                              new Vector2(0.5f, 0f), new Vector2(0f, 260f),
+                              new Vector2(560f, 150f));
+
+        return refs;
     }
 
     private static GameObject BuildHudPanel(Transform parent, out Text distanceText,
