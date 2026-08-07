@@ -726,6 +726,17 @@ public static class RunnerSceneBuilder
         so.FindProperty("score").objectReferenceValue = score;
         so.FindProperty("characters").objectReferenceValue = characters;
         so.ApplyModifiedPropertiesWithoutUndo();
+
+        // Панели разбирает UIManager, но только в Play mode — в Start().
+        // Пока игра не запущена, все они включены и наваливаются друг на друга,
+        // и Game view выглядит как каша. Оставляем видимым одно меню.
+        hudPanel.SetActive(false);
+        pause.SetActive(false);
+        over.SetActive(false);
+        shop.SetActive(false);
+        settings.SetActive(false);
+        charactersUi.Panel.SetActive(false);
+        menu.SetActive(true);
     }
 
     private static void SetArray(SerializedObject so, string propertyName, Object[] values)
