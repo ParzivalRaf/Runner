@@ -37,6 +37,16 @@ public class ObstacleSpawner : MonoBehaviour
     [Range(0f, 1f)]
     [SerializeField] private float coinChance = 0.75f;
 
+    [Header("Бонусы")]
+    [SerializeField] private PowerUp[] powerUpPrefabs;
+
+    [Tooltip("Вероятность, что в чанке появится бонус.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float powerUpChance = 0.16f;
+
+    [Tooltip("Высота бонуса над полом.")]
+    [SerializeField] private float powerUpHeight = 1.2f;
+
     [Header("Настройки")]
     [Tooltip("Первые столько метров забега — без препятствий, чтобы игрок успел взяться за телефон.")]
     [SerializeField] private float startSafeDistance = 45f;
@@ -63,6 +73,9 @@ public class ObstacleSpawner : MonoBehaviour
     private readonly Dictionary<Chunk, List<PooledItem>> _spawned =
         new Dictionary<Chunk, List<PooledItem>>();
 
+    private readonly Dictionary<PowerUp, ObjectPool> _powerUpPools =
+        new Dictionary<PowerUp, ObjectPool>();
+
     private ObjectPool _coinPool;
     private Transform _poolRoot;
 
@@ -87,6 +100,15 @@ public class ObstacleSpawner : MonoBehaviour
 
         if (coinPrefab != null)
             _coinPool = new ObjectPool(coinPrefab.gameObject, _poolRoot, coinsPerChunk * 3);
+
+        if (powerUpPrefabs != null)
+        {
+            foreach (PowerUp prefab in powerUpPrefabs)
+            {
+                if (prefab == null || _powerUpPools.ContainsKey(prefab)) continue;
+                _powerUpPools[prefab] = new ObjectPool(prefab.gameObject, _poolRoot, 1);
+            }
+        }
     }
 
     /// <summary>Забыть историю раскладок перед новым забегом.</summary>
@@ -156,6 +178,7 @@ public class ObstacleSpawner : MonoBehaviour
         }
 
         PlaceCoins(chunk, freeForCoins, list);
+        PlacePowerUp(chunk, freeForCoins, list);
     }
 
     /// <summary>Вернуть всё содержимое чанка обратно в пулы.</summary>
@@ -179,16 +202,8 @@ public class ObstacleSpawner : MonoBehaviour
         if (_coinPool == null || coinsPerChunk <= 0) return;
         if (Random.value > coinChance) return;
 
-        // Собираем полосы, свободные во всех рядах чанка.
-        int chosenLane = -1;
-        int freeCount = 0;
-        for (int lane = 0; lane < 3; lane++)
-        {
-            if (!freeLanes[lane]) continue;
-            freeCount++;
-            if (Random.Range(0, freeCount) == 0) chosenLane = lane;   // равномерный выбор
-        }
-
+        // Полоса, свободная во всех рядах чанка.
+        int chosenLane = PickFreeLane(freeLanes);
         if (chosenLane < 0) return;   // весь чанк перекрыт прыжковым рядом — без монет
 
         float laneX = (chosenLane - 1) * 2.5f;
@@ -204,6 +219,46 @@ public class ObstacleSpawner : MonoBehaviour
 
             list.Add(new PooledItem { Instance = coin, Pool = _coinPool });
         }
+    }
+
+    // --------------------------------------------------------------- бонусы
+
+    private void PlacePowerUp(Chunk chunk, bool[] freeLanes, List<PooledItem> list)
+    {
+        if (_powerUpPools.Count == 0) return;
+        if (Random.value > powerUpChance) return;
+
+        int lane = PickFreeLane(freeLanes);
+        if (lane < 0) return;
+
+        PowerUp prefab = powerUpPrefabs[Random.Range(0, powerUpPrefabs.Length)];
+        if (prefab == null || !_powerUpPools.TryGetValue(prefab, out ObjectPool pool)) return;
+
+        GameObject instance = pool.Get();
+        instance.transform.SetParent(chunk.transform, false);
+        instance.transform.SetPositionAndRotation(
+            new Vector3((lane - 1) * 2.5f, powerUpHeight,
+                        chunk.transform.position.z + chunk.Length * 0.5f),
+            Quaternion.identity);
+
+        list.Add(new PooledItem { Instance = instance, Pool = pool });
+    }
+
+    /// <summary>Равномерно выбирает одну из свободных полос. -1, если свободных нет.</summary>
+    private static int PickFreeLane(bool[] freeLanes)
+    {
+        int chosen = -1;
+        int seen = 0;
+
+        for (int lane = 0; lane < 3; lane++)
+        {
+            if (!freeLanes[lane]) continue;
+
+            seen++;
+            if (Random.Range(0, seen) == 0) chosen = lane;
+        }
+
+        return chosen;
     }
 
     // ---------------------------------------------------------- вспомогательное

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -11,6 +12,9 @@ using UnityEngine;
 /// </summary>
 public class Coin : MonoBehaviour
 {
+    /// <summary>Все монеты, сейчас лежащие на трассе. Нужен магниту.</summary>
+    public static readonly List<Coin> Active = new List<Coin>();
+
     [Tooltip("Скорость вращения, градусов в секунду.")]
     [SerializeField] private float spinSpeed = 180f;
 
@@ -20,10 +24,20 @@ public class Coin : MonoBehaviour
     [Tooltip("Визуальная часть. Крутим её, а не корень с коллайдером.")]
     [SerializeField] private Transform visual;
 
+    /// <summary>Монета ещё лежит и её можно подобрать.</summary>
+    public bool IsAvailable => visual != null && visual.gameObject.activeSelf;
+
     private void OnEnable()
     {
         // Из пула монета может прийти уже подобранной — возвращаем вид.
         if (visual != null) visual.gameObject.SetActive(true);
+
+        Active.Add(this);
+    }
+
+    private void OnDisable()
+    {
+        Active.Remove(this);
     }
 
     private void Update()
@@ -35,10 +49,13 @@ public class Coin : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
-        if (visual == null || !visual.gameObject.activeSelf) return;
+        if (!IsAvailable) return;
         if (other.GetComponentInParent<PlayerController>() == null) return;
 
-        if (ScoreManager.Instance != null) ScoreManager.Instance.AddCoins(value);
+        int amount = value;
+        if (PowerUpManager.Instance != null) amount *= PowerUpManager.Instance.CoinMultiplier;
+
+        if (ScoreManager.Instance != null) ScoreManager.Instance.AddCoins(amount);
 
         visual.gameObject.SetActive(false);
     }

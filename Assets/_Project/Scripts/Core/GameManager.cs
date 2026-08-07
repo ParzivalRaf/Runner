@@ -22,6 +22,7 @@ public class GameManager : MonoBehaviour
     [SerializeField] private ChunkSpawner chunkSpawner;
     [SerializeField] private ObstacleSpawner obstacleSpawner;
     [SerializeField] private ScoreManager scoreManager;
+    [SerializeField] private PowerUpManager powerUpManager;
     [SerializeField] private CameraFollow cameraFollow;
 
     [Header("Отладка")]
@@ -51,6 +52,7 @@ public class GameManager : MonoBehaviour
         if (chunkSpawner == null) chunkSpawner = FindFirstObjectByType<ChunkSpawner>();
         if (obstacleSpawner == null) obstacleSpawner = FindFirstObjectByType<ObstacleSpawner>();
         if (scoreManager == null) scoreManager = GetComponent<ScoreManager>();
+        if (powerUpManager == null) powerUpManager = GetComponent<PowerUpManager>();
         if (cameraFollow == null) cameraFollow = FindFirstObjectByType<CameraFollow>();
     }
 
@@ -124,7 +126,12 @@ public class GameManager : MonoBehaviour
     private void ResetRun()
     {
         if (obstacleSpawner != null) obstacleSpawner.ResetRun();
-        if (player != null) player.ResetRun();
+        if (powerUpManager != null) powerUpManager.ResetRun();
+
+        // Апгрейд «рывок на старте» просто начисляет фору в метрах:
+        // счётчик стартует не с нуля, а значит и сложность сразу выше.
+        if (player != null) player.ResetRun(UpgradeShop.HeadStartDistance);
+
         if (chunkSpawner != null) chunkSpawner.ResetRun();
         if (scoreManager != null) scoreManager.ResetRun();
         if (cameraFollow != null) cameraFollow.SnapToTarget();

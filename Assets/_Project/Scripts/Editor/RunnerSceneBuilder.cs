@@ -247,9 +247,9 @@ public static class RunnerSceneBuilder
         return saved.GetComponent<Coin>();
     }
 
-    // ===================================================================== M6
+    // ================================================================== M6+M7
 
-    [MenuItem("Tools/Runner/M6 — интерфейс: меню, HUD, пауза")]
+    [MenuItem("Tools/Runner/M6+M7 — полная игра: интерфейс, бонусы, магазин")]
     public static void BuildM6Scene()
     {
         DeleteIfExists("Track");
@@ -267,7 +267,16 @@ public static class RunnerSceneBuilder
         Obstacle slide = CreateObstaclePrefab("Obstacle_Slide", Obstacle.Kind.SlideUnder, mats);
         Coin coin = CreateCoinPrefab(mats);
 
+        var powerUps = new List<PowerUp>
+        {
+            CreatePowerUpPrefab(PowerUpType.Magnet),
+            CreatePowerUpPrefab(PowerUpType.Coffee),
+            CreatePowerUpPrefab(PowerUpType.Sneakers),
+            CreatePowerUpPrefab(PowerUpType.DoubleScore)
+        };
+
         GameObject player = BuildPlayer(mats);
+        player.AddComponent<CoinMagnet>();
         CameraFollow follow = SetUpCamera(player.transform);
         SetUpLight();
 
@@ -281,6 +290,12 @@ public static class RunnerSceneBuilder
         obstacleSo.FindProperty("jumpPrefab").objectReferenceValue = jump;
         obstacleSo.FindProperty("slidePrefab").objectReferenceValue = slide;
         obstacleSo.FindProperty("coinPrefab").objectReferenceValue = coin;
+
+        SerializedProperty powerUpsProp = obstacleSo.FindProperty("powerUpPrefabs");
+        powerUpsProp.arraySize = powerUps.Count;
+        for (int i = 0; i < powerUps.Count; i++)
+            powerUpsProp.GetArrayElementAtIndex(i).objectReferenceValue = powerUps[i];
+
         obstacleSo.ApplyModifiedPropertiesWithoutUndo();
 
         var chunkSo = new SerializedObject(chunkSpawner);
@@ -298,16 +313,22 @@ public static class RunnerSceneBuilder
         var managerGo = new GameObject("GameManager");
         var gameManager = managerGo.AddComponent<GameManager>();
         var scoreManager = managerGo.AddComponent<ScoreManager>();
+        var powerUpManager = managerGo.AddComponent<PowerUpManager>();
 
         var scoreSo = new SerializedObject(scoreManager);
         scoreSo.FindProperty("player").objectReferenceValue = player.GetComponent<PlayerController>();
         scoreSo.ApplyModifiedPropertiesWithoutUndo();
+
+        var powerSo = new SerializedObject(powerUpManager);
+        powerSo.FindProperty("player").objectReferenceValue = player.GetComponent<PlayerController>();
+        powerSo.ApplyModifiedPropertiesWithoutUndo();
 
         var gameSo = new SerializedObject(gameManager);
         gameSo.FindProperty("player").objectReferenceValue = player.GetComponent<PlayerController>();
         gameSo.FindProperty("chunkSpawner").objectReferenceValue = chunkSpawner;
         gameSo.FindProperty("obstacleSpawner").objectReferenceValue = obstacleSpawner;
         gameSo.FindProperty("scoreManager").objectReferenceValue = scoreManager;
+        gameSo.FindProperty("powerUpManager").objectReferenceValue = powerUpManager;
         gameSo.FindProperty("cameraFollow").objectReferenceValue = follow;
         gameSo.ApplyModifiedPropertiesWithoutUndo();
 
@@ -324,7 +345,47 @@ public static class RunnerSceneBuilder
 
         BuildUserInterface(player.GetComponent<PlayerController>(), scoreManager);
 
-        Finish(player, "Сцена M6 собрана: меню, HUD, пауза, экран проигрыша. Жми Play.");
+        Finish(player, "Полная сцена собрана: меню, HUD, пауза, бонусы, магазин, настройки. Жми Play.");
+    }
+
+    private static PowerUp CreatePowerUpPrefab(PowerUpType type)
+    {
+        EnsureFolder(ProjectRoot + "/Prefabs");
+        EnsureFolder(ProjectRoot + "/Prefabs/Pickups");
+
+        string prefabName = $"PowerUp_{type}";
+        Color color = UpgradeShop.ColorFor(type);
+        Material material = GetOrCreateMaterial($"M_PowerUp{type}", color);
+
+        var root = new GameObject(prefabName);
+        PowerUp powerUp = root.AddComponent<PowerUp>();
+
+        var trigger = root.AddComponent<SphereCollider>();
+        trigger.isTrigger = true;
+        trigger.radius = 0.8f;
+        trigger.center = Vector3.zero;
+
+        // Куб, повёрнутый на 45° — читается как «кристалл» и отличается
+        // от монеты силуэтом, а не только цветом.
+        GameObject visual = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        visual.name = "Visual";
+        visual.transform.SetParent(root.transform, false);
+        visual.transform.localPosition = Vector3.zero;
+        visual.transform.localRotation = Quaternion.Euler(45f, 0f, 45f);
+        visual.transform.localScale = Vector3.one * 0.75f;
+        visual.GetComponent<Renderer>().sharedMaterial = material;
+        Object.DestroyImmediate(visual.GetComponent<Collider>());
+
+        var so = new SerializedObject(powerUp);
+        so.FindProperty("type").enumValueIndex = (int)type;
+        so.FindProperty("visual").objectReferenceValue = visual.transform;
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        string path = $"{ProjectRoot}/Prefabs/Pickups/{prefabName}.prefab";
+        GameObject saved = PrefabUtility.SaveAsPrefabAsset(root, path);
+        Object.DestroyImmediate(root);
+
+        return saved.GetComponent<PowerUp>();
     }
 
     // ================================================================== UI
@@ -369,28 +430,53 @@ public static class RunnerSceneBuilder
         safeArea.AddComponent<SafeAreaFitter>();
 
         GameObject menu = BuildMenuPanel(safeArea.transform, out Text menuBest,
-                                         out Text menuCoins, out Button playButton);
+                                         out Text menuCoins, out Button playButton,
+                                         out Button shopButton, out Button settingsButton);
+
         GameObject hudPanel = BuildHudPanel(safeArea.transform, out Text distanceText,
-                                            out Text coinsText, out Button pauseButton);
+                                            out Text coinsText, out Button pauseButton,
+                                            out GameObject[] barRoots,
+                                            out RectTransform[] barFills);
+
         GameObject pause = BuildPausePanel(safeArea.transform, out Button resume,
                                            out Button pauseRestart, out Button pauseMenu);
+
         GameObject over = BuildGameOverPanel(safeArea.transform, out Text overTitle,
                                              out Text overStats, out Button overRestart,
                                              out Button overMenu);
+
+        GameObject shop = BuildShopPanel(safeArea.transform, out Text shopCoins,
+                                         out Text[] shopNames, out Text[] shopEffects,
+                                         out Button[] shopBuys, out Text[] shopBuyLabels,
+                                         out Button shopClose);
+
+        GameObject settings = BuildSettingsPanel(safeArea.transform,
+                                                 out Button music, out Text musicLabel,
+                                                 out Button sound, out Text soundLabel,
+                                                 out Button vibration, out Text vibrationLabel,
+                                                 out Button reset, out Text resetLabel,
+                                                 out Button settingsClose);
 
         var so = new SerializedObject(ui);
         so.FindProperty("menuPanel").objectReferenceValue = menu;
         so.FindProperty("hudPanel").objectReferenceValue = hudPanel;
         so.FindProperty("pausePanel").objectReferenceValue = pause;
         so.FindProperty("gameOverPanel").objectReferenceValue = over;
+        so.FindProperty("shopPanel").objectReferenceValue = shop;
+        so.FindProperty("settingsPanel").objectReferenceValue = settings;
 
         so.FindProperty("menuBestText").objectReferenceValue = menuBest;
         so.FindProperty("menuCoinsText").objectReferenceValue = menuCoins;
         so.FindProperty("playButton").objectReferenceValue = playButton;
+        so.FindProperty("shopButton").objectReferenceValue = shopButton;
+        so.FindProperty("settingsButton").objectReferenceValue = settingsButton;
 
         so.FindProperty("hudDistanceText").objectReferenceValue = distanceText;
         so.FindProperty("hudCoinsText").objectReferenceValue = coinsText;
         so.FindProperty("pauseButton").objectReferenceValue = pauseButton;
+
+        SetArray(so, "powerUpBarRoots", barRoots);
+        SetArray(so, "powerUpBarFills", barFills);
 
         so.FindProperty("resumeButton").objectReferenceValue = resume;
         so.FindProperty("pauseRestartButton").objectReferenceValue = pauseRestart;
@@ -401,45 +487,83 @@ public static class RunnerSceneBuilder
         so.FindProperty("gameOverRestartButton").objectReferenceValue = overRestart;
         so.FindProperty("gameOverMenuButton").objectReferenceValue = overMenu;
 
+        so.FindProperty("shopCoinsText").objectReferenceValue = shopCoins;
+        SetArray(so, "shopNameTexts", shopNames);
+        SetArray(so, "shopEffectTexts", shopEffects);
+        SetArray(so, "shopBuyButtons", shopBuys);
+        SetArray(so, "shopBuyLabels", shopBuyLabels);
+        so.FindProperty("shopCloseButton").objectReferenceValue = shopClose;
+
+        so.FindProperty("musicButton").objectReferenceValue = music;
+        so.FindProperty("musicLabel").objectReferenceValue = musicLabel;
+        so.FindProperty("soundButton").objectReferenceValue = sound;
+        so.FindProperty("soundLabel").objectReferenceValue = soundLabel;
+        so.FindProperty("vibrationButton").objectReferenceValue = vibration;
+        so.FindProperty("vibrationLabel").objectReferenceValue = vibrationLabel;
+        so.FindProperty("resetButton").objectReferenceValue = reset;
+        so.FindProperty("resetLabel").objectReferenceValue = resetLabel;
+        so.FindProperty("settingsCloseButton").objectReferenceValue = settingsClose;
+
         so.FindProperty("player").objectReferenceValue = player;
         so.FindProperty("score").objectReferenceValue = score;
         so.ApplyModifiedPropertiesWithoutUndo();
     }
 
+    private static void SetArray(SerializedObject so, string propertyName, Object[] values)
+    {
+        SerializedProperty prop = so.FindProperty(propertyName);
+        if (prop == null) return;
+
+        prop.arraySize = values.Length;
+        for (int i = 0; i < values.Length; i++)
+            prop.GetArrayElementAtIndex(i).objectReferenceValue = values[i];
+    }
+
     private static GameObject BuildMenuPanel(Transform parent, out Text bestText,
-                                             out Text coinsText, out Button playButton)
+                                             out Text coinsText, out Button playButton,
+                                             out Button shopButton, out Button settingsButton)
     {
         GameObject panel = UIPanel("MenuPanel", parent, PanelDim);
 
         UIText("Title", panel.transform, "RUNNER", 120, TextAnchor.MiddleCenter,
-               new Vector2(0.5f, 1f), new Vector2(0f, -420f), new Vector2(900f, 180f));
+               new Vector2(0.5f, 1f), new Vector2(0f, -400f), new Vector2(900f, 180f));
 
         UIText("Subtitle", panel.transform, "школьный забег", 48, TextAnchor.MiddleCenter,
-               new Vector2(0.5f, 1f), new Vector2(0f, -540f), new Vector2(900f, 80f));
+               new Vector2(0.5f, 1f), new Vector2(0f, -520f), new Vector2(900f, 80f));
 
         bestText = UIText("Best", panel.transform, "Рекорд: 0 м", 52, TextAnchor.MiddleCenter,
-                          new Vector2(0.5f, 0.5f), new Vector2(0f, 250f), new Vector2(900f, 80f));
+                          new Vector2(0.5f, 0.5f), new Vector2(0f, 300f), new Vector2(900f, 80f));
 
         coinsText = UIText("Coins", panel.transform, "Монет: 0", 52, TextAnchor.MiddleCenter,
-                           new Vector2(0.5f, 0.5f), new Vector2(0f, 160f), new Vector2(900f, 80f));
+                           new Vector2(0.5f, 0.5f), new Vector2(0f, 215f), new Vector2(900f, 80f));
         coinsText.color = CoinGold;
 
         playButton = UIButton("PlayButton", panel.transform, "ИГРАТЬ", 76, ButtonMain,
-                              new Vector2(0.5f, 0.5f), new Vector2(0f, -60f),
+                              new Vector2(0.5f, 0.5f), new Vector2(0f, 20f),
                               new Vector2(700f, 190f));
+
+        shopButton = UIButton("ShopButton", panel.transform, "МАГАЗИН", 54, ButtonSecondary,
+                              new Vector2(0.5f, 0.5f), new Vector2(0f, -170f),
+                              new Vector2(560f, 140f));
+
+        settingsButton = UIButton("SettingsButton", panel.transform, "НАСТРОЙКИ", 54,
+                                  ButtonSecondary, new Vector2(0.5f, 0.5f),
+                                  new Vector2(0f, -330f), new Vector2(560f, 140f));
 
         UIText("Hint", panel.transform,
                "свайпы: влево / вправо / вверх / вниз",
                38, TextAnchor.MiddleCenter,
-               new Vector2(0.5f, 0f), new Vector2(0f, 220f), new Vector2(1000f, 70f));
+               new Vector2(0.5f, 0f), new Vector2(0f, 180f), new Vector2(1000f, 70f));
 
         return panel;
     }
 
     private static GameObject BuildHudPanel(Transform parent, out Text distanceText,
-                                            out Text coinsText, out Button pauseButton)
+                                            out Text coinsText, out Button pauseButton,
+                                            out GameObject[] barRoots,
+                                            out RectTransform[] barFills)
     {
-        GameObject panel = UIObject("HudPanel", parent.transform);
+        GameObject panel = UIObject("HudPanel", parent);
 
         distanceText = UIText("Distance", panel.transform, "0 м", 92, TextAnchor.MiddleCenter,
                               new Vector2(0.5f, 1f), new Vector2(0f, -110f),
@@ -456,6 +580,114 @@ public static class RunnerSceneBuilder
         pauseButton = UIButton("PauseButton", panel.transform, "II", 56, ButtonSecondary,
                                new Vector2(0f, 1f), new Vector2(100f, -110f),
                                new Vector2(130f, 130f));
+
+        // Полоски активных бонусов — столбиком под кнопкой паузы.
+        barRoots = new GameObject[4];
+        barFills = new RectTransform[4];
+
+        for (int i = 0; i < 4; i++)
+        {
+            var type = (PowerUpType)i;
+            barRoots[i] = UIBar($"Bar_{type}", panel.transform, UpgradeShop.ColorFor(type),
+                                UpgradeShop.NameFor(type),
+                                new Vector2(0f, 1f),
+                                new Vector2(210f, -220f - i * 62f),
+                                new Vector2(340f, 46f),
+                                out barFills[i]);
+            barRoots[i].SetActive(false);
+        }
+
+        return panel;
+    }
+
+    private static GameObject BuildShopPanel(Transform parent, out Text coinsText,
+                                             out Text[] nameTexts, out Text[] effectTexts,
+                                             out Button[] buyButtons, out Text[] buyLabels,
+                                             out Button closeButton)
+    {
+        GameObject panel = UIPanel("ShopPanel", parent, PanelDim);
+
+        UIText("Title", panel.transform, "МАГАЗИН", 88, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 1f), new Vector2(0f, -260f), new Vector2(900f, 130f));
+
+        coinsText = UIText("Coins", panel.transform, "Монет: 0", 54, TextAnchor.MiddleCenter,
+                           new Vector2(0.5f, 1f), new Vector2(0f, -370f), new Vector2(900f, 80f));
+        coinsText.color = CoinGold;
+
+        nameTexts = new Text[3];
+        effectTexts = new Text[3];
+        buyButtons = new Button[3];
+        buyLabels = new Text[3];
+
+        for (int i = 0; i < 3; i++)
+        {
+            float rowY = 250f - i * 220f;
+
+            GameObject row = UIObject($"Row_{i}", panel.transform);
+            var rowRect = (RectTransform)row.transform;
+            rowRect.anchorMin = new Vector2(0.5f, 0.5f);
+            rowRect.anchorMax = new Vector2(0.5f, 0.5f);
+            rowRect.pivot = new Vector2(0.5f, 0.5f);
+            rowRect.sizeDelta = new Vector2(940f, 190f);
+            rowRect.anchoredPosition = new Vector2(0f, rowY);
+
+            var background = row.AddComponent<Image>();
+            background.color = new Color(1f, 1f, 1f, 0.06f);
+
+            nameTexts[i] = UIText("Name", row.transform, "—", 48, TextAnchor.MiddleLeft,
+                                  new Vector2(0f, 0.5f), new Vector2(340f, 34f),
+                                  new Vector2(620f, 60f));
+
+            effectTexts[i] = UIText("Effect", row.transform, "", 38, TextAnchor.MiddleLeft,
+                                    new Vector2(0f, 0.5f), new Vector2(340f, -30f),
+                                    new Vector2(620f, 54f));
+            effectTexts[i].color = new Color(0.75f, 0.8f, 0.9f);
+
+            buyButtons[i] = UIButton("Buy", row.transform, "0", 46, ButtonMain,
+                                     new Vector2(1f, 0.5f), new Vector2(-160f, 0f),
+                                     new Vector2(260f, 130f));
+            buyLabels[i] = buyButtons[i].GetComponentInChildren<Text>();
+        }
+
+        closeButton = UIButton("CloseButton", panel.transform, "НАЗАД", 58, ButtonSecondary,
+                               new Vector2(0.5f, 0f), new Vector2(0f, 260f),
+                               new Vector2(560f, 150f));
+
+        return panel;
+    }
+
+    private static GameObject BuildSettingsPanel(Transform parent,
+                                                 out Button music, out Text musicLabel,
+                                                 out Button sound, out Text soundLabel,
+                                                 out Button vibration, out Text vibrationLabel,
+                                                 out Button reset, out Text resetLabel,
+                                                 out Button close)
+    {
+        GameObject panel = UIPanel("SettingsPanel", parent, PanelDim);
+
+        UIText("Title", panel.transform, "НАСТРОЙКИ", 82, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 1f), new Vector2(0f, -280f), new Vector2(900f, 130f));
+
+        music = UIButton("MusicButton", panel.transform, "Музыка: вкл", 50, ButtonSecondary,
+                         new Vector2(0.5f, 0.5f), new Vector2(0f, 300f), new Vector2(760f, 150f));
+        musicLabel = music.GetComponentInChildren<Text>();
+
+        sound = UIButton("SoundButton", panel.transform, "Звуки: вкл", 50, ButtonSecondary,
+                         new Vector2(0.5f, 0.5f), new Vector2(0f, 130f), new Vector2(760f, 150f));
+        soundLabel = sound.GetComponentInChildren<Text>();
+
+        vibration = UIButton("VibrationButton", panel.transform, "Вибрация: вкл", 50,
+                             ButtonSecondary, new Vector2(0.5f, 0.5f), new Vector2(0f, -40f),
+                             new Vector2(760f, 150f));
+        vibrationLabel = vibration.GetComponentInChildren<Text>();
+
+        reset = UIButton("ResetButton", panel.transform, "СБРОСИТЬ ПРОГРЕСС", 42,
+                         new Color(0.60f, 0.22f, 0.22f), new Vector2(0.5f, 0.5f),
+                         new Vector2(0f, -260f), new Vector2(760f, 150f));
+        resetLabel = reset.GetComponentInChildren<Text>();
+
+        close = UIButton("CloseButton", panel.transform, "НАЗАД", 58, ButtonSecondary,
+                         new Vector2(0.5f, 0f), new Vector2(0f, 260f), new Vector2(560f, 150f));
 
         return panel;
     }
@@ -558,6 +790,47 @@ public static class RunnerSceneBuilder
         text.verticalOverflow = VerticalWrapMode.Overflow;
 
         return text;
+    }
+
+    /// <summary>
+    /// Полоска таймера бонуса. Заполняющаяся часть растягивается от левого
+    /// края через localScale.x — так не нужен ни спрайт, ни Image.Filled.
+    /// </summary>
+    private static GameObject UIBar(string name, Transform parent, Color color, string label,
+                                    Vector2 pivotAnchor, Vector2 position, Vector2 size,
+                                    out RectTransform fill)
+    {
+        var root = new GameObject(name, typeof(RectTransform));
+        root.transform.SetParent(parent, false);
+
+        var rect = (RectTransform)root.transform;
+        rect.anchorMin = pivotAnchor;
+        rect.anchorMax = pivotAnchor;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.sizeDelta = size;
+        rect.anchoredPosition = position;
+
+        var background = root.AddComponent<Image>();
+        background.color = new Color(0f, 0f, 0f, 0.45f);
+
+        var fillGo = new GameObject("Fill", typeof(RectTransform));
+        fillGo.transform.SetParent(root.transform, false);
+
+        fill = (RectTransform)fillGo.transform;
+        fill.anchorMin = new Vector2(0f, 0f);
+        fill.anchorMax = new Vector2(0f, 1f);
+        fill.pivot = new Vector2(0f, 0.5f);
+        fill.sizeDelta = new Vector2(size.x, 0f);
+        fill.anchoredPosition = Vector2.zero;
+
+        var fillImage = fillGo.AddComponent<Image>();
+        fillImage.color = color;
+        fillImage.raycastTarget = false;
+
+        UIText("Label", root.transform, label, 32, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 0.5f), Vector2.zero, size);
+
+        return root;
     }
 
     private static Button UIButton(string name, Transform parent, string label, int fontSize,

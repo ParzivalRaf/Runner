@@ -79,7 +79,15 @@ public class PlayerController : MonoBehaviour
 
     // --- публичное состояние, пригодится дальше (счёт, камера, анимации) ---
 
-    public float CurrentSpeed => _currentSpeed;
+    /// <summary>Множитель скорости от бонусов. Выставляет PowerUpManager.</summary>
+    public float ExternalSpeedMultiplier { get; set; } = 1f;
+
+    /// <summary>Множитель ВЫСОТЫ прыжка от бонусов. Выставляет PowerUpManager.</summary>
+    public float ExternalJumpMultiplier { get; set; } = 1f;
+
+    /// <summary>Фактическая скорость с учётом бонусов.</summary>
+    public float CurrentSpeed => _currentSpeed * ExternalSpeedMultiplier;
+
     public float Distance => _distance;
     public bool IsGrounded => _isGrounded;
     public bool IsSliding => _isSliding;
@@ -155,10 +163,13 @@ public class PlayerController : MonoBehaviour
     /// Вернуть игрока в стартовое состояние. Вызывает GameManager перед
     /// каждым новым забегом — сцена при этом не перезагружается.
     /// </summary>
-    public void ResetRun()
+    public void ResetRun(float startDistance = 0f)
     {
+        ExternalSpeedMultiplier = 1f;
+        ExternalJumpMultiplier = 1f;
+
         _currentSpeed = startSpeed;
-        _distance = 0f;
+        _distance = Mathf.Max(0f, startDistance);
 
         _currentLane = 1;
         _targetX = LaneToX(_currentLane);
@@ -198,7 +209,7 @@ public class PlayerController : MonoBehaviour
 
     private void MoveForward(float dt)
     {
-        float step = _currentSpeed * dt;
+        float step = _currentSpeed * ExternalSpeedMultiplier * dt;
         _distance += step;
 
         Vector3 position = transform.position;
@@ -268,7 +279,10 @@ public class PlayerController : MonoBehaviour
 
         _isGrounded = false;
         _isFastFalling = false;
-        _verticalVelocity = _jumpVelocity;
+
+        // Высота прыжка растёт как квадрат начальной скорости, поэтому
+        // множитель высоты ×1.8 — это множитель скорости √1.8.
+        _verticalVelocity = _jumpVelocity * Mathf.Sqrt(Mathf.Max(0.01f, ExternalJumpMultiplier));
     }
 
     private void FastFall()

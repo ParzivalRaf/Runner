@@ -20,6 +20,15 @@ public class PlayerCollision : MonoBehaviour
         Obstacle obstacle = other.GetComponentInParent<Obstacle>();
         if (obstacle == null) return;
 
+        // Под кофе игрок проламывается сквозь препятствие, а не умирает.
+        // Объект просто выключаем: в пул его всё равно вернёт ObstacleSpawner,
+        // а при следующем Get он включится обратно.
+        if (PowerUpManager.Instance != null && PowerUpManager.Instance.IsInvincible)
+        {
+            obstacle.gameObject.SetActive(false);
+            return;
+        }
+
         GameManager.Instance.GameOver();
     }
 }

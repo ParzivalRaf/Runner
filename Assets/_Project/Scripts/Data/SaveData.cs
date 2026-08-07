@@ -21,6 +21,11 @@ public class SaveData
     public string selectedCharacterId = "";
     public List<string> unlockedCharacters = new List<string>();
 
+    // Уровни апгрейдов из магазина, 0..UpgradeShop.MaxLevel
+    public int magnetLevel;
+    public int coffeeLevel;
+    public int headStartLevel;
+
     public bool musicEnabled = true;
     public bool soundEnabled = true;
     public bool vibrationEnabled = true;
