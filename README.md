@@ -23,7 +23,10 @@ Unity Hub → проект **Runner** → открыть сцену `Assets/_Pro
 | M1 — сцена с длинным полом | Игрок и камера на прямом полу 2000 м. Для отладки движения. |
 | M2 — бесконечная трасса из чанков | Генератор трассы с пулингом, без препятствий. |
 | M3 — препятствия и Game Over | Плюс препятствия, столкновения, рестарт. |
-| **M4 — монеты, очки и сохранения** | **Текущая рабочая сцена. Полный MVP.** |
+| M4 — монеты, очки и сохранения | Плюс монеты и сохранение рекорда. |
+| **M6+M7 — полная игра** | **Текущая рабочая сцена: интерфейс, бонусы, магазин, настройки.** |
+
+Сцены M1–M4 стартуют забег сразу, без меню (галочка `Skip Menu` на GameManager) — они нужны только для отладки механики.
 
 Если что-то сломалось в сцене — жми M4, получишь чистую версию за секунду.
 
@@ -34,20 +37,38 @@ Unity Hub → проект **Runner** → открыть сцену `Assets/_Pro
 ```
 Assets/_Project/
 ├── Scripts/
-│   ├── Core/      AppSettings, GameManager, ObjectPool
-│   ├── Player/    PlayerController, SwipeDetector, PlayerCollision, CameraFollow
+│   ├── Core/      AppSettings, GameState, GameManager, ObjectPool
+│   ├── Player/    PlayerController, SwipeDetector, PlayerCollision,
+│   │              CameraFollow, CoinMagnet
 │   ├── World/     Chunk, ChunkSpawner, Obstacle, ObstaclePatterns,
-│   │              ObstacleSpawner, Coin
-│   ├── Data/      SaveData
-│   ├── Systems/   SaveSystem, ScoreManager, DebugHud
+│   │              ObstacleSpawner, Coin, PowerUp
+│   ├── Data/      SaveData, PowerUpType, UpgradeShop
+│   ├── UI/        UIManager, SafeAreaFitter
+│   ├── Systems/   SaveSystem, ScoreManager, PowerUpManager, DebugHud
 │   └── Editor/    RunnerSceneBuilder  (в сборку игры не попадает)
 ├── Prefabs/
 │   ├── Chunks/    Chunk_Plain, Chunk_Pillars, Chunk_Arches
 │   ├── Obstacles/ Obstacle_Block, Obstacle_Jump, Obstacle_Slide
-│   └── Pickups/   Coin
+│   └── Pickups/   Coin, PowerUp_Magnet, PowerUp_Coffee,
+│                  PowerUp_Sneakers, PowerUp_DoubleScore
 ├── Materials/
 └── Scenes/        Game
 ```
+
+## Бонусы и магазин
+
+Четыре бонуса, все пассивные — подобрал и он работает сам:
+
+| Бонус | Цвет | Эффект | База |
+|---|---|---|---|
+| Магнит | синий | тянет монеты в радиусе 5 юнитов | 6 с |
+| Кофе | коричневый | ×1.6 к скорости и неуязвимость (проламывает препятствия) | 6 с |
+| Кроссовки | зелёный | ×1.8 к высоте прыжка | 7 с |
+| Множитель | фиолетовый | монеты считаются вдвойне | 8 с |
+
+Магазин продаёт три апгрейда, по 5 уровней каждый: длительность магнита (+1 с за уровень), длительность кофе (+1 с), рывок на старте (+100 м к стартовой отметке — счётчик начинается не с нуля, значит и сложность сразу выше).
+
+Интерфейс собран на legacy `UnityEngine.UI.Text` со встроенным шрифтом LegacyRuntime — это работает без импорта TextMesh Pro Essentials. Захочешь красивую типографику — TMP ставится позже без переделки логики.
 
 ---
 
@@ -107,9 +128,9 @@ JSON в `Application.persistentDataPath/save.json`. На macOS это
 
 ## Дальше по плану
 
-- **M5** — модели учителей: скан головы (KIRI Engine) → чистка в Blender → бесплатное low-poly тело → авто-риг в Mixamo → Humanoid в Unity.
-- **M6** — нормальный UI на Canvas вместо `DebugHud`: меню, выбор персонажа, пауза, экран проигрыша.
-- **M7** — бонусы (магнит, кофе, кроссовки), магазин, апгрейды.
-- **M8** — звук, партиклы, полировка, подписанный APK.
+- **Сборка на телефон.** Единственное, что осталось от M0. Отладка по USB → File → Build Profiles → Build And Run. Свайпы на живом тачскрине ещё ни разу не проверялись.
+- **Персонажи.** `CharacterData` (ScriptableObject), способности, экран выбора. Сначала на цветных капсулах-заглушках, модели подставим позже.
+- **M5 — модели учителей.** Скан головы (KIRI Engine) → чистка в Blender → бесплатное low-poly тело → авто-риг в Mixamo → Humanoid в Unity.
+- **M8 — звук и полировка.** `AudioManager` с пулом AudioSource, партиклы на монету и столкновение, подписанный APK. Настройки звука в сейве уже есть, к ним осталось подключить сам звук.
 
 Перед раздачей APK кому угодно — взять с каждого учителя письменное согласие на использование изображения (§22 KunstUrhG). Одна страница с датой и подписью.
