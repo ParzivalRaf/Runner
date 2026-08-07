@@ -134,12 +134,22 @@ public class UIManager : MonoBehaviour
         Bind(resetButton, ResetProgress);
     }
 
+    /// <summary>
+    /// Подписать кнопку и заодно дать ей звук нажатия — чтобы не вспоминать
+    /// про него отдельно на каждой новой кнопке.
+    ///
+    /// Вызывается только из Awake, поэтому снимать старый обработчик не надо:
+    /// дублей быть не может.
+    /// </summary>
     private static void Bind(Button button, UnityEngine.Events.UnityAction action)
     {
         if (button == null) return;
 
-        button.onClick.RemoveListener(action);
-        button.onClick.AddListener(action);
+        button.onClick.AddListener(() =>
+        {
+            if (AudioManager.Instance != null) AudioManager.Instance.PlayButton();
+            action();
+        });
     }
 
     private void Start()
@@ -440,6 +450,9 @@ public class UIManager : MonoBehaviour
     {
         SaveSystem.Data.musicEnabled = !SaveSystem.Data.musicEnabled;
         SaveSystem.Save();
+
+        if (AudioManager.Instance != null) AudioManager.Instance.ApplySettings();
+
         RefreshSettings();
     }
 
@@ -447,6 +460,9 @@ public class UIManager : MonoBehaviour
     {
         SaveSystem.Data.soundEnabled = !SaveSystem.Data.soundEnabled;
         SaveSystem.Save();
+
+        if (AudioManager.Instance != null) AudioManager.Instance.ApplySettings();
+
         RefreshSettings();
     }
 
@@ -473,6 +489,9 @@ public class UIManager : MonoBehaviour
         // Список открытых персонажей обнулился — выбранный мог стать закрытым.
         if (characters != null) characters.ReloadFromSave();
         _characterIndex = 0;
+
+        // Сброс вернул музыку и звук во «включено» — источник об этом не знает.
+        if (AudioManager.Instance != null) AudioManager.Instance.ApplySettings();
 
         RefreshSettings();
         RefreshMenu();

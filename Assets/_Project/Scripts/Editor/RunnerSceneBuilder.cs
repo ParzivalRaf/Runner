@@ -317,10 +317,40 @@ public static class RunnerSceneBuilder
         var powerUpManager = managerGo.AddComponent<PowerUpManager>();
         var characterManager = managerGo.AddComponent<CharacterManager>();
 
+        var audioManager = managerGo.AddComponent<AudioManager>();
+        var effectManager = managerGo.AddComponent<EffectManager>();
+
         var charSo = new SerializedObject(characterManager);
         charSo.FindProperty("database").objectReferenceValue = EnsureCharacterDatabase();
         charSo.FindProperty("playerVisual").objectReferenceValue = player.transform.Find("Visual");
         charSo.ApplyModifiedPropertiesWithoutUndo();
+
+        // --- звук ---
+        RunnerAudioBuilder.EnsureGenerated();
+
+        var audioSo = new SerializedObject(audioManager);
+        audioSo.FindProperty("musicClip").objectReferenceValue = LoadClip("Music_Loop");
+        audioSo.FindProperty("coinClip").objectReferenceValue = LoadClip("SFX_Coin");
+        audioSo.FindProperty("powerUpClip").objectReferenceValue = LoadClip("SFX_PowerUp");
+        audioSo.FindProperty("jumpClip").objectReferenceValue = LoadClip("SFX_Jump");
+        audioSo.FindProperty("slideClip").objectReferenceValue = LoadClip("SFX_Slide");
+        audioSo.FindProperty("crashClip").objectReferenceValue = LoadClip("SFX_Crash");
+        audioSo.FindProperty("buttonClip").objectReferenceValue = LoadClip("SFX_Button");
+        audioSo.ApplyModifiedPropertiesWithoutUndo();
+
+        // --- партиклы ---
+        ParticleSystem coinBurst = CreateBurstPrefab(
+            "FX_CoinBurst", mats.Coin,
+            count: 8, speed: 3.5f, size: 0.16f, lifetime: 0.5f, gravity: 1.4f);
+
+        ParticleSystem crashBurst = CreateBurstPrefab(
+            "FX_CrashBurst", GetOrCreateMaterial("M_Crash", new Color(0.85f, 0.25f, 0.20f)),
+            count: 16, speed: 6f, size: 0.22f, lifetime: 0.7f, gravity: 1.8f);
+
+        var effectSo = new SerializedObject(effectManager);
+        effectSo.FindProperty("coinBurstPrefab").objectReferenceValue = coinBurst;
+        effectSo.FindProperty("crashBurstPrefab").objectReferenceValue = crashBurst;
+        effectSo.ApplyModifiedPropertiesWithoutUndo();
 
         var scoreSo = new SerializedObject(scoreManager);
         scoreSo.FindProperty("player").objectReferenceValue = player.GetComponent<PlayerController>();
@@ -337,6 +367,7 @@ public static class RunnerSceneBuilder
         gameSo.FindProperty("scoreManager").objectReferenceValue = scoreManager;
         gameSo.FindProperty("powerUpManager").objectReferenceValue = powerUpManager;
         gameSo.FindProperty("characterManager").objectReferenceValue = characterManager;
+        gameSo.FindProperty("effectManager").objectReferenceValue = effectManager;
         gameSo.FindProperty("cameraFollow").objectReferenceValue = follow;
         gameSo.ApplyModifiedPropertiesWithoutUndo();
 
@@ -353,7 +384,7 @@ public static class RunnerSceneBuilder
 
         BuildUserInterface(player.GetComponent<PlayerController>(), scoreManager, characterManager);
 
-        Finish(player, "Полная сцена собрана: меню, HUD, пауза, бонусы, магазин, персонажи, настройки. Жми Play.");
+        Finish(player, "Полная сцена собрана: меню, HUD, бонусы, магазин, персонажи, звук, партиклы. Жми Play.");
     }
 
     private static PowerUp CreatePowerUpPrefab(PowerUpType type)
@@ -395,6 +426,82 @@ public static class RunnerSceneBuilder
 
         return saved.GetComponent<PowerUp>();
     }
+
+    // ============================================================== эффекты
+
+    /// <summary>
+    /// Префаб вспышки частиц. Частицы — кубики (Mesh render mode), а не
+    /// спрайты: так они рисуются теми же URP-материалами, что и весь мир,
+    /// и не требуют отдельного шейдера для партиклов.
+    /// </summary>
+    private static ParticleSystem CreateBurstPrefab(string prefabName, Material material,
+                                                    int count, float speed, float size,
+                                                    float lifetime, float gravity)
+    {
+        EnsureFolder(ProjectRoot + "/Prefabs");
+        EnsureFolder(ProjectRoot + "/Prefabs/Effects");
+
+        var root = new GameObject(prefabName);
+        var system = root.AddComponent<ParticleSystem>();
+
+        ParticleSystem.MainModule main = system.main;
+        main.duration = 0.2f;
+        main.loop = false;
+        main.playOnAwake = false;
+        main.startLifetime = lifetime;
+        main.startSpeed = speed;
+        main.startSize = size;
+        main.startRotation3D = true;
+        main.startRotationX = new ParticleSystem.MinMaxCurve(0f, 6.28f);
+        main.startRotationY = new ParticleSystem.MinMaxCurve(0f, 6.28f);
+        main.gravityModifier = gravity;
+        main.maxParticles = count * 2;
+
+        // World: частицы не едут за игроком, а остаются там, где вспыхнули.
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+
+        ParticleSystem.EmissionModule emission = system.emission;
+        emission.rateOverTime = 0f;
+        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, (short)count) });
+
+        ParticleSystem.ShapeModule shape = system.shape;
+        shape.shapeType = ParticleSystemShapeType.Sphere;
+        shape.radius = 0.2f;
+
+        // Частицы уменьшаются к концу жизни — иначе они просто исчезают рывком.
+        ParticleSystem.SizeOverLifetimeModule sizeOverLife = system.sizeOverLifetime;
+        sizeOverLife.enabled = true;
+        sizeOverLife.size = new ParticleSystem.MinMaxCurve(
+            1f, AnimationCurve.EaseInOut(0f, 1f, 1f, 0f));
+
+        var renderer = system.GetComponent<ParticleSystemRenderer>();
+        renderer.renderMode = ParticleSystemRenderMode.Mesh;
+        renderer.mesh = PrimitiveMesh(PrimitiveType.Cube);
+        renderer.sharedMaterial = material;
+        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+
+        system.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+
+        string path = $"{ProjectRoot}/Prefabs/Effects/{prefabName}.prefab";
+        GameObject saved = PrefabUtility.SaveAsPrefabAsset(root, path);
+        Object.DestroyImmediate(root);
+
+        return saved.GetComponent<ParticleSystem>();
+    }
+
+    /// <summary>Меш встроенного примитива без оставленного в сцене объекта.</summary>
+    private static Mesh PrimitiveMesh(PrimitiveType type)
+    {
+        GameObject temp = GameObject.CreatePrimitive(type);
+        Mesh mesh = temp.GetComponent<MeshFilter>().sharedMesh;
+        Object.DestroyImmediate(temp);
+
+        return mesh;
+    }
+
+    private static AudioClip LoadClip(string assetName) =>
+        AssetDatabase.LoadAssetAtPath<AudioClip>($"{ProjectRoot}/Audio/{assetName}.wav");
 
     // =========================================================== персонажи
 

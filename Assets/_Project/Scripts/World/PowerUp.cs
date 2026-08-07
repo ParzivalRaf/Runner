@@ -49,6 +49,9 @@ public class PowerUp : MonoBehaviour
         if (PowerUpManager.Instance == null) return;
 
         PowerUpManager.Instance.Activate(type);
+
+        if (AudioManager.Instance != null) AudioManager.Instance.PlayPowerUp();
+
         visual.gameObject.SetActive(false);
     }
 }

@@ -24,6 +24,7 @@ public class GameManager : MonoBehaviour
     [SerializeField] private ScoreManager scoreManager;
     [SerializeField] private PowerUpManager powerUpManager;
     [SerializeField] private CharacterManager characterManager;
+    [SerializeField] private EffectManager effectManager;
     [SerializeField] private CameraFollow cameraFollow;
 
     [Header("Отладка")]
@@ -55,6 +56,7 @@ public class GameManager : MonoBehaviour
         if (scoreManager == null) scoreManager = GetComponent<ScoreManager>();
         if (powerUpManager == null) powerUpManager = GetComponent<PowerUpManager>();
         if (characterManager == null) characterManager = GetComponent<CharacterManager>();
+        if (effectManager == null) effectManager = GetComponent<EffectManager>();
         if (cameraFollow == null) cameraFollow = FindFirstObjectByType<CameraFollow>();
     }
 
@@ -129,6 +131,7 @@ public class GameManager : MonoBehaviour
     {
         if (obstacleSpawner != null) obstacleSpawner.ResetRun();
         if (powerUpManager != null) powerUpManager.ResetRun();
+        if (effectManager != null) effectManager.ResetRun();
 
         // Персонажа сбрасываем ДО игрока: щит перезаряжается, а прибавка
         // к стартовой скорости должна быть выставлена раньше, чем player

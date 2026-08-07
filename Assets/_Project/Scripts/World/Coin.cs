@@ -57,6 +57,9 @@ public class Coin : MonoBehaviour
 
         if (ScoreManager.Instance != null) ScoreManager.Instance.AddCoins(amount);
 
+        if (AudioManager.Instance != null) AudioManager.Instance.PlayCoin();
+        if (EffectManager.Instance != null) EffectManager.Instance.PlayCoin(visual.position);
+
         visual.gameObject.SetActive(false);
     }
 }

@@ -37,6 +37,11 @@ public class PlayerCollision : MonoBehaviour
             return;
         }
 
+        // Эффект ставим здесь, а не в GameManager: только тут известно,
+        // где именно игрок встретился с препятствием.
+        if (EffectManager.Instance != null)
+            EffectManager.Instance.PlayCrash(transform.position + Vector3.up);
+
         GameManager.Instance.GameOver();
     }
 }

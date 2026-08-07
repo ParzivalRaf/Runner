@@ -290,6 +290,8 @@ public class PlayerController : MonoBehaviour
         // Высота прыжка растёт как квадрат начальной скорости, поэтому
         // множитель высоты ×1.8 — это множитель скорости √1.8.
         _verticalVelocity = _jumpVelocity * Mathf.Sqrt(Mathf.Max(0.01f, ExternalJumpMultiplier));
+
+        if (AudioManager.Instance != null) AudioManager.Instance.PlayJump();
     }
 
     private void FastFall()
@@ -308,6 +310,8 @@ public class PlayerController : MonoBehaviour
         _isSliding = true;
         _slideTimer = slideDuration;
         ApplySlidingCollider();
+
+        if (AudioManager.Instance != null) AudioManager.Instance.PlaySlide();
     }
 
     private void UpdateSlide(float dt)
