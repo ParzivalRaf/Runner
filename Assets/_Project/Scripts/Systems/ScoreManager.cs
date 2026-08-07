@@ -36,6 +36,14 @@ public class ScoreManager : MonoBehaviour
         if (GameManager.Instance != null) GameManager.Instance.OnGameOver += HandleGameOver;
     }
 
+    /// <summary>Обнулить счётчики перед новым забегом.</summary>
+    public void ResetRun()
+    {
+        CoinsThisRun = 0;
+        IsNewDistanceRecord = false;
+        _resultSaved = false;
+    }
+
     public void AddCoins(int amount)
     {
         if (amount <= 0) return;

@@ -3,6 +3,10 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.UI;
+using UnityEngine.UI;
 
 /// <summary>
 /// Собирает тестовые сцены этапов одной кнопкой: пол, разметку, игрока,
@@ -105,7 +109,11 @@ public static class RunnerSceneBuilder
         SetUpCamera(player.transform);
         SetUpLight();
 
-        new GameObject("GameManager").AddComponent<GameManager>();
+        // В отладочных сценах M3/M4 интерфейса нет — сразу стартуем забег.
+        var m3Manager = new GameObject("GameManager").AddComponent<GameManager>();
+        var m3ManagerSo = new SerializedObject(m3Manager);
+        m3ManagerSo.FindProperty("skipMenu").boolValue = true;
+        m3ManagerSo.ApplyModifiedPropertiesWithoutUndo();
 
         var spawnerGo = new GameObject("ChunkSpawner");
         var chunkSpawner = spawnerGo.AddComponent<ChunkSpawner>();
@@ -162,8 +170,12 @@ public static class RunnerSceneBuilder
         SetUpLight();
 
         var managerGo = new GameObject("GameManager");
-        managerGo.AddComponent<GameManager>();
+        var m4Manager = managerGo.AddComponent<GameManager>();
         var scoreManager = managerGo.AddComponent<ScoreManager>();
+
+        var m4ManagerSo = new SerializedObject(m4Manager);
+        m4ManagerSo.FindProperty("skipMenu").boolValue = true;
+        m4ManagerSo.ApplyModifiedPropertiesWithoutUndo();
 
         var scoreSo = new SerializedObject(scoreManager);
         scoreSo.FindProperty("player").objectReferenceValue = player.GetComponent<PlayerController>();
@@ -233,6 +245,351 @@ public static class RunnerSceneBuilder
         Object.DestroyImmediate(root);
 
         return saved.GetComponent<Coin>();
+    }
+
+    // ===================================================================== M6
+
+    [MenuItem("Tools/Runner/M6 — интерфейс: меню, HUD, пауза")]
+    public static void BuildM6Scene()
+    {
+        DeleteIfExists("Track");
+        DeleteIfExists("ChunkSpawner");
+        DeleteIfExists("Player");
+        DeleteIfExists("GameManager");
+        DeleteIfExists("UI");
+        DeleteIfExists("EventSystem");
+
+        Materials mats = LoadMaterials();
+
+        List<Chunk> chunkPrefabs = CreateChunkPrefabs(mats);
+        Obstacle block = CreateObstaclePrefab("Obstacle_Block", Obstacle.Kind.Block, mats);
+        Obstacle jump = CreateObstaclePrefab("Obstacle_Jump", Obstacle.Kind.JumpOver, mats);
+        Obstacle slide = CreateObstaclePrefab("Obstacle_Slide", Obstacle.Kind.SlideUnder, mats);
+        Coin coin = CreateCoinPrefab(mats);
+
+        GameObject player = BuildPlayer(mats);
+        CameraFollow follow = SetUpCamera(player.transform);
+        SetUpLight();
+
+        // --- генератор трассы ---
+        var spawnerGo = new GameObject("ChunkSpawner");
+        var chunkSpawner = spawnerGo.AddComponent<ChunkSpawner>();
+        var obstacleSpawner = spawnerGo.AddComponent<ObstacleSpawner>();
+
+        var obstacleSo = new SerializedObject(obstacleSpawner);
+        obstacleSo.FindProperty("blockPrefab").objectReferenceValue = block;
+        obstacleSo.FindProperty("jumpPrefab").objectReferenceValue = jump;
+        obstacleSo.FindProperty("slidePrefab").objectReferenceValue = slide;
+        obstacleSo.FindProperty("coinPrefab").objectReferenceValue = coin;
+        obstacleSo.ApplyModifiedPropertiesWithoutUndo();
+
+        var chunkSo = new SerializedObject(chunkSpawner);
+        chunkSo.FindProperty("player").objectReferenceValue = player.transform;
+        chunkSo.FindProperty("obstacleSpawner").objectReferenceValue = obstacleSpawner;
+
+        SerializedProperty prefabsProp = chunkSo.FindProperty("chunkPrefabs");
+        prefabsProp.arraySize = chunkPrefabs.Count;
+        for (int i = 0; i < chunkPrefabs.Count; i++)
+            prefabsProp.GetArrayElementAtIndex(i).objectReferenceValue = chunkPrefabs[i];
+
+        chunkSo.ApplyModifiedPropertiesWithoutUndo();
+
+        // --- менеджеры ---
+        var managerGo = new GameObject("GameManager");
+        var gameManager = managerGo.AddComponent<GameManager>();
+        var scoreManager = managerGo.AddComponent<ScoreManager>();
+
+        var scoreSo = new SerializedObject(scoreManager);
+        scoreSo.FindProperty("player").objectReferenceValue = player.GetComponent<PlayerController>();
+        scoreSo.ApplyModifiedPropertiesWithoutUndo();
+
+        var gameSo = new SerializedObject(gameManager);
+        gameSo.FindProperty("player").objectReferenceValue = player.GetComponent<PlayerController>();
+        gameSo.FindProperty("chunkSpawner").objectReferenceValue = chunkSpawner;
+        gameSo.FindProperty("obstacleSpawner").objectReferenceValue = obstacleSpawner;
+        gameSo.FindProperty("scoreManager").objectReferenceValue = scoreManager;
+        gameSo.FindProperty("cameraFollow").objectReferenceValue = follow;
+        gameSo.ApplyModifiedPropertiesWithoutUndo();
+
+        // Отладочный текст больше не нужен — но оставляем компонент,
+        // чтобы можно было включить галочкой Show.
+        var hud = player.GetComponent<DebugHud>();
+        if (hud != null)
+        {
+            var hudSo = new SerializedObject(hud);
+            hudSo.FindProperty("spawner").objectReferenceValue = chunkSpawner;
+            hudSo.FindProperty("show").boolValue = false;
+            hudSo.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        BuildUserInterface(player.GetComponent<PlayerController>(), scoreManager);
+
+        Finish(player, "Сцена M6 собрана: меню, HUD, пауза, экран проигрыша. Жми Play.");
+    }
+
+    // ================================================================== UI
+
+    private const float UIReferenceWidth = 1080f;
+    private const float UIReferenceHeight = 1920f;
+
+    private static readonly Color PanelDim = new Color(0.05f, 0.06f, 0.09f, 0.82f);
+    private static readonly Color ButtonMain = new Color(0.95f, 0.45f, 0.15f, 1f);
+    private static readonly Color ButtonSecondary = new Color(0.24f, 0.28f, 0.36f, 1f);
+    private static readonly Color CoinGold = new Color(0.98f, 0.82f, 0.28f, 1f);
+
+    private static void BuildUserInterface(PlayerController player, ScoreManager score)
+    {
+        // Система событий. Обязательно InputSystemUIInputModule, а не старый
+        // StandaloneInputModule: проект переведён на новый Input System,
+        // и со старым модулем кнопки просто не нажимаются.
+        var eventSystemGo = new GameObject("EventSystem");
+        eventSystemGo.AddComponent<EventSystem>();
+        var inputModule = eventSystemGo.AddComponent<InputSystemUIInputModule>();
+
+        var actions = AssetDatabase.LoadAssetAtPath<InputActionAsset>(
+            "Assets/InputSystem_Actions.inputactions");
+        if (actions != null) inputModule.actionsAsset = actions;
+
+        // Canvas.
+        var canvasGo = new GameObject("UI");
+        var canvas = canvasGo.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+
+        var scaler = canvasGo.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(UIReferenceWidth, UIReferenceHeight);
+        scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+        scaler.matchWidthOrHeight = 0.5f;
+
+        canvasGo.AddComponent<GraphicRaycaster>();
+        var ui = canvasGo.AddComponent<UIManager>();
+
+        // Контейнер, поджатый под безопасную зону.
+        GameObject safeArea = UIObject("SafeArea", canvasGo.transform);
+        safeArea.AddComponent<SafeAreaFitter>();
+
+        GameObject menu = BuildMenuPanel(safeArea.transform, out Text menuBest,
+                                         out Text menuCoins, out Button playButton);
+        GameObject hudPanel = BuildHudPanel(safeArea.transform, out Text distanceText,
+                                            out Text coinsText, out Button pauseButton);
+        GameObject pause = BuildPausePanel(safeArea.transform, out Button resume,
+                                           out Button pauseRestart, out Button pauseMenu);
+        GameObject over = BuildGameOverPanel(safeArea.transform, out Text overTitle,
+                                             out Text overStats, out Button overRestart,
+                                             out Button overMenu);
+
+        var so = new SerializedObject(ui);
+        so.FindProperty("menuPanel").objectReferenceValue = menu;
+        so.FindProperty("hudPanel").objectReferenceValue = hudPanel;
+        so.FindProperty("pausePanel").objectReferenceValue = pause;
+        so.FindProperty("gameOverPanel").objectReferenceValue = over;
+
+        so.FindProperty("menuBestText").objectReferenceValue = menuBest;
+        so.FindProperty("menuCoinsText").objectReferenceValue = menuCoins;
+        so.FindProperty("playButton").objectReferenceValue = playButton;
+
+        so.FindProperty("hudDistanceText").objectReferenceValue = distanceText;
+        so.FindProperty("hudCoinsText").objectReferenceValue = coinsText;
+        so.FindProperty("pauseButton").objectReferenceValue = pauseButton;
+
+        so.FindProperty("resumeButton").objectReferenceValue = resume;
+        so.FindProperty("pauseRestartButton").objectReferenceValue = pauseRestart;
+        so.FindProperty("pauseMenuButton").objectReferenceValue = pauseMenu;
+
+        so.FindProperty("gameOverTitleText").objectReferenceValue = overTitle;
+        so.FindProperty("gameOverStatsText").objectReferenceValue = overStats;
+        so.FindProperty("gameOverRestartButton").objectReferenceValue = overRestart;
+        so.FindProperty("gameOverMenuButton").objectReferenceValue = overMenu;
+
+        so.FindProperty("player").objectReferenceValue = player;
+        so.FindProperty("score").objectReferenceValue = score;
+        so.ApplyModifiedPropertiesWithoutUndo();
+    }
+
+    private static GameObject BuildMenuPanel(Transform parent, out Text bestText,
+                                             out Text coinsText, out Button playButton)
+    {
+        GameObject panel = UIPanel("MenuPanel", parent, PanelDim);
+
+        UIText("Title", panel.transform, "RUNNER", 120, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 1f), new Vector2(0f, -420f), new Vector2(900f, 180f));
+
+        UIText("Subtitle", panel.transform, "школьный забег", 48, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 1f), new Vector2(0f, -540f), new Vector2(900f, 80f));
+
+        bestText = UIText("Best", panel.transform, "Рекорд: 0 м", 52, TextAnchor.MiddleCenter,
+                          new Vector2(0.5f, 0.5f), new Vector2(0f, 250f), new Vector2(900f, 80f));
+
+        coinsText = UIText("Coins", panel.transform, "Монет: 0", 52, TextAnchor.MiddleCenter,
+                           new Vector2(0.5f, 0.5f), new Vector2(0f, 160f), new Vector2(900f, 80f));
+        coinsText.color = CoinGold;
+
+        playButton = UIButton("PlayButton", panel.transform, "ИГРАТЬ", 76, ButtonMain,
+                              new Vector2(0.5f, 0.5f), new Vector2(0f, -60f),
+                              new Vector2(700f, 190f));
+
+        UIText("Hint", panel.transform,
+               "свайпы: влево / вправо / вверх / вниз",
+               38, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 0f), new Vector2(0f, 220f), new Vector2(1000f, 70f));
+
+        return panel;
+    }
+
+    private static GameObject BuildHudPanel(Transform parent, out Text distanceText,
+                                            out Text coinsText, out Button pauseButton)
+    {
+        GameObject panel = UIObject("HudPanel", parent.transform);
+
+        distanceText = UIText("Distance", panel.transform, "0 м", 92, TextAnchor.MiddleCenter,
+                              new Vector2(0.5f, 1f), new Vector2(0f, -110f),
+                              new Vector2(700f, 140f));
+
+        // Пивот прямоугольника в его центре, поэтому отступ считаем от края
+        // с учётом половины ширины: 60 + 320/2 = 220. Иначе текст уезжает
+        // за правый край экрана.
+        coinsText = UIText("Coins", panel.transform, "0", 64, TextAnchor.MiddleRight,
+                           new Vector2(1f, 1f), new Vector2(-220f, -110f),
+                           new Vector2(320f, 100f));
+        coinsText.color = CoinGold;
+
+        pauseButton = UIButton("PauseButton", panel.transform, "II", 56, ButtonSecondary,
+                               new Vector2(0f, 1f), new Vector2(100f, -110f),
+                               new Vector2(130f, 130f));
+
+        return panel;
+    }
+
+    private static GameObject BuildPausePanel(Transform parent, out Button resume,
+                                              out Button restart, out Button menu)
+    {
+        GameObject panel = UIPanel("PausePanel", parent, PanelDim);
+
+        UIText("Title", panel.transform, "ПАУЗА", 96, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 0.5f), new Vector2(0f, 420f), new Vector2(900f, 140f));
+
+        resume = UIButton("ResumeButton", panel.transform, "ПРОДОЛЖИТЬ", 62, ButtonMain,
+                          new Vector2(0.5f, 0.5f), new Vector2(0f, 140f), new Vector2(680f, 170f));
+
+        restart = UIButton("RestartButton", panel.transform, "ЗАНОВО", 62, ButtonSecondary,
+                           new Vector2(0.5f, 0.5f), new Vector2(0f, -60f), new Vector2(680f, 170f));
+
+        menu = UIButton("MenuButton", panel.transform, "В МЕНЮ", 62, ButtonSecondary,
+                        new Vector2(0.5f, 0.5f), new Vector2(0f, -260f), new Vector2(680f, 170f));
+
+        return panel;
+    }
+
+    private static GameObject BuildGameOverPanel(Transform parent, out Text title,
+                                                 out Text stats, out Button restart,
+                                                 out Button menu)
+    {
+        GameObject panel = UIPanel("GameOverPanel", parent, PanelDim);
+
+        title = UIText("Title", panel.transform, "ВРЕЗАЛСЯ", 92, TextAnchor.MiddleCenter,
+                       new Vector2(0.5f, 0.5f), new Vector2(0f, 430f), new Vector2(1000f, 140f));
+
+        stats = UIText("Stats", panel.transform, "0 м\nмонет: 0", 62, TextAnchor.MiddleCenter,
+                       new Vector2(0.5f, 0.5f), new Vector2(0f, 230f), new Vector2(900f, 220f));
+
+        restart = UIButton("RestartButton", panel.transform, "ЗАНОВО", 62, ButtonMain,
+                           new Vector2(0.5f, 0.5f), new Vector2(0f, -60f), new Vector2(680f, 170f));
+
+        menu = UIButton("MenuButton", panel.transform, "В МЕНЮ", 62, ButtonSecondary,
+                        new Vector2(0.5f, 0.5f), new Vector2(0f, -260f), new Vector2(680f, 170f));
+
+        return panel;
+    }
+
+    // ------------------------------------------------------- кирпичики UI
+
+    private static Font UIFont =>
+        Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+    private static GameObject UIObject(string name, Transform parent)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+
+        var rect = (RectTransform)go.transform;
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
+
+        return go;
+    }
+
+    /// <summary>Панель на весь экран с затемняющей подложкой.</summary>
+    private static GameObject UIPanel(string name, Transform parent, Color background)
+    {
+        GameObject panel = UIObject(name, parent);
+
+        var image = panel.AddComponent<Image>();
+        image.color = background;
+        image.raycastTarget = true;   // ловит тапы, чтобы они не проходили сквозь панель
+
+        return panel;
+    }
+
+    private static Text UIText(string name, Transform parent, string content, int fontSize,
+                               TextAnchor anchor, Vector2 pivotAnchor, Vector2 position,
+                               Vector2 size)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+
+        var rect = (RectTransform)go.transform;
+        rect.anchorMin = pivotAnchor;
+        rect.anchorMax = pivotAnchor;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.sizeDelta = size;
+        rect.anchoredPosition = position;
+
+        var text = go.AddComponent<Text>();
+        text.font = UIFont;
+        text.fontSize = fontSize;
+        text.fontStyle = FontStyle.Bold;
+        text.alignment = anchor;
+        text.color = Color.white;
+        text.text = content;
+        text.raycastTarget = false;
+        text.horizontalOverflow = HorizontalWrapMode.Overflow;
+        text.verticalOverflow = VerticalWrapMode.Overflow;
+
+        return text;
+    }
+
+    private static Button UIButton(string name, Transform parent, string label, int fontSize,
+                                   Color color, Vector2 pivotAnchor, Vector2 position,
+                                   Vector2 size)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+
+        var rect = (RectTransform)go.transform;
+        rect.anchorMin = pivotAnchor;
+        rect.anchorMax = pivotAnchor;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.sizeDelta = size;
+        rect.anchoredPosition = position;
+
+        var image = go.AddComponent<Image>();
+        image.color = color;
+
+        var button = go.AddComponent<Button>();
+        button.targetGraphic = image;
+
+        var colors = button.colors;
+        colors.highlightedColor = Color.Lerp(color, Color.white, 0.15f);
+        colors.pressedColor = Color.Lerp(color, Color.black, 0.25f);
+        colors.fadeDuration = 0.05f;
+        button.colors = colors;
+
+        UIText("Label", go.transform, label, fontSize, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 0.5f), Vector2.zero, size);
+
+        return button;
     }
 
     // ============================================================== материалы
@@ -555,7 +912,7 @@ public static class RunnerSceneBuilder
 
     // ================================================================ камера
 
-    private static void SetUpCamera(Transform target)
+    private static CameraFollow SetUpCamera(Transform target)
     {
         Camera cam = Camera.main;
         if (cam == null)
@@ -578,6 +935,8 @@ public static class RunnerSceneBuilder
 
         cam.transform.position = target.position + new Vector3(0f, 4.5f, -6f);
         cam.transform.rotation = Quaternion.Euler(15f, 0f, 0f);
+
+        return follow;
     }
 
     private static void SetUpLight()

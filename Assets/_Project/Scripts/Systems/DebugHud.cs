@@ -90,7 +90,7 @@ public class DebugHud : MonoBehaviour
     private void DrawGameOver()
     {
         GameManager game = GameManager.Instance;
-        if (game == null || game.IsRunning) return;
+        if (game == null || game.State != GameState.Dead) return;
 
         Color previous = GUI.color;
         GUI.color = new Color(0f, 0f, 0f, 0.65f);

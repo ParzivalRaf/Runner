@@ -151,6 +151,30 @@ public class PlayerController : MonoBehaviour
         _jumpVelocity = _riseGravity * riseTime;
     }
 
+    /// <summary>
+    /// Вернуть игрока в стартовое состояние. Вызывает GameManager перед
+    /// каждым новым забегом — сцена при этом не перезагружается.
+    /// </summary>
+    public void ResetRun()
+    {
+        _currentSpeed = startSpeed;
+        _distance = 0f;
+
+        _currentLane = 1;
+        _targetX = LaneToX(_currentLane);
+
+        _verticalVelocity = 0f;
+        _isGrounded = true;
+        _isFastFalling = false;
+
+        _isSliding = false;
+        _slideTimer = 0f;
+        _slideQueuedOnLanding = false;
+
+        transform.position = new Vector3(_targetX, _groundY, 0f);
+        ApplyStandingCollider();
+    }
+
     private void Update()
     {
         // После столкновения игрок замирает на месте.

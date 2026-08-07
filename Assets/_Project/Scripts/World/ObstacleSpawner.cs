@@ -69,8 +69,15 @@ public class ObstacleSpawner : MonoBehaviour
     private float _lastActionZ = -9999f;
     private bool[] _lastPassableLanes = { true, true, true };
 
-    private void Awake()
+    private bool _initialized;
+
+    private void Awake() => EnsureInitialized();
+
+    private void EnsureInitialized()
     {
+        if (_initialized) return;
+        _initialized = true;
+
         _poolRoot = new GameObject("ObstaclePool").transform;
         _poolRoot.SetParent(transform, false);
 
@@ -80,6 +87,15 @@ public class ObstacleSpawner : MonoBehaviour
 
         if (coinPrefab != null)
             _coinPool = new ObjectPool(coinPrefab.gameObject, _poolRoot, coinsPerChunk * 3);
+    }
+
+    /// <summary>Забыть историю раскладок перед новым забегом.</summary>
+    public void ResetRun()
+    {
+        EnsureInitialized();
+
+        _lastActionZ = -9999f;
+        _lastPassableLanes = new[] { true, true, true };
     }
 
     private void CreateObstaclePool(Obstacle prefab)
@@ -93,6 +109,8 @@ public class ObstacleSpawner : MonoBehaviour
     /// <summary>Наполнить чанк. Вызывать после того, как чанк уже поставлен на место.</summary>
     public void Populate(Chunk chunk, float distance)
     {
+        EnsureInitialized();
+
         Transform[] points = chunk.SpawnPoints;
         if (points == null || points.Length < 9) return;
 

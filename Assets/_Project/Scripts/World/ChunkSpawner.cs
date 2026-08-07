@@ -42,20 +42,30 @@ public class ChunkSpawner : MonoBehaviour
 
     public int ActiveChunkCount => _active.Count;
 
-    private void Start()
+    private bool _initialized;
+
+    private void Start() => ResetRun();
+
+    /// <summary>
+    /// Создаёт пулы. Вызывается лениво, чтобы не зависеть от того, чей Start
+    /// отработал первым — GameManager может дёрнуть ResetRun раньше нас.
+    /// </summary>
+    private bool EnsureInitialized()
     {
+        if (_initialized) return true;
+
         if (player == null)
         {
             Debug.LogError("[ChunkSpawner] Не назначен Player.");
             enabled = false;
-            return;
+            return false;
         }
 
         if (chunkPrefabs == null || chunkPrefabs.Length == 0)
         {
             Debug.LogError("[ChunkSpawner] Не назначено ни одного префаба чанка.");
             enabled = false;
-            return;
+            return false;
         }
 
         _playerController = player.GetComponent<PlayerController>();
@@ -71,12 +81,27 @@ public class ChunkSpawner : MonoBehaviour
             _pools[prefab] = new ObjectPool(prefab.gameObject, _poolRoot, prewarmPerPrefab);
         }
 
+        _initialized = true;
+        return true;
+    }
+
+    /// <summary>Разложить трассу заново с нуля. Сцена при этом не перезагружается.</summary>
+    public void ResetRun()
+    {
+        if (!EnsureInitialized()) return;
+
+        while (_active.Count > 0) Despawn(_active[0]);
+
+        _lastPrefab = null;
         _nextSpawnZ = startZ;
+
         for (int i = 0; i < chunksAhead + 1; i++) SpawnNext();
     }
 
     private void Update()
     {
+        if (!_initialized) return;
+
         float playerZ = player.position.z;
 
         // Досыпаем чанки впереди.

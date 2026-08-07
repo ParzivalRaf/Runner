@@ -59,12 +59,19 @@ public class CameraFollow : MonoBehaviour
 
     private void Start() => SnapToTarget();
 
-    private void SnapToTarget()
+    /// <summary>Мгновенно поставить камеру на место, без сглаживания.</summary>
+    public void SnapToTarget()
     {
         if (target == null) return;
 
         transform.position = target.position + offset;
         transform.rotation = Quaternion.Euler(pitch, 0f, 0f);
+
+        _xVelocity = 0f;
+        _yVelocity = 0f;
+        _fovVelocity = 0f;
+
+        if (_camera != null) _camera.fieldOfView = baseFov;
     }
 
     private void LateUpdate()

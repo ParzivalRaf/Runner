@@ -1,45 +1,57 @@
 using System;
 using UnityEngine;
-using UnityEngine.InputSystem;
-using UnityEngine.SceneManagement;
 
 /// <summary>
-/// Состояние забега: бежим или врезались. Пока минимально — на M6 сюда
-/// добавятся пауза, меню и нормальный экран Game Over.
+/// Машина состояний игры и точка, через которую всё перезапускается.
+///
+/// Забег начинается заново БЕЗ перезагрузки сцены: пулы, префабы и материалы
+/// остаются в памяти, поэтому «Заново» срабатывает мгновенно, а не с чёрным
+/// экраном на пару секунд. Каждая система умеет сбрасывать себя сама
+/// в методе ResetRun.
 ///
 /// Куда вешать: на пустой GameObject "GameManager" в сцене.
+/// В инспекторе: перетащить Player, ChunkSpawner, ObstacleSpawner,
+/// ScoreManager и Main Camera в соответствующие поля.
 /// </summary>
 public class GameManager : MonoBehaviour
 {
-    public enum State { Running, Dead }
-
     public static GameManager Instance { get; private set; }
 
-    [Tooltip("Сколько секунд после смерти игнорировать нажатия, чтобы не рестартнуть случайно.")]
-    [SerializeField] private float restartInputDelay = 0.8f;
+    [Header("Ссылки на системы")]
+    [SerializeField] private PlayerController player;
+    [SerializeField] private ChunkSpawner chunkSpawner;
+    [SerializeField] private ObstacleSpawner obstacleSpawner;
+    [SerializeField] private ScoreManager scoreManager;
+    [SerializeField] private CameraFollow cameraFollow;
 
     [Header("Отладка")]
     [Tooltip("Игрок проходит сквозь препятствия. Нужно, чтобы тестировать генератор на длинных дистанциях.")]
     [SerializeField] private bool godMode = false;
 
-    /// <summary>Режим неуязвимости. В релизной сборке всегда выключен.</summary>
+    [Tooltip("Сразу начинать забег, не показывая меню. Удобно при отладке механики.")]
+    [SerializeField] private bool skipMenu = false;
+
+    public GameState State { get; private set; } = GameState.Menu;
+
+    public bool IsRunning => State == GameState.Running;
     public bool GodMode => godMode;
 
-    public State CurrentState { get; private set; } = State.Running;
-    public bool IsRunning => CurrentState == State.Running;
-
-    /// <summary>Дистанция, на которой закончился забег.</summary>
+    /// <summary>Дистанция, на которой закончился последний забег.</summary>
     public float LastRunDistance { get; private set; }
 
+    public event Action<GameState> OnStateChanged;
+    public event Action OnRunStarted;
     public event Action OnGameOver;
-
-    private float _deathTime;
 
     private void Awake()
     {
-        // Сцена перезагружается целиком, поэтому DontDestroyOnLoad здесь не нужен.
         Instance = this;
-        CurrentState = State.Running;
+
+        if (player == null) player = FindFirstObjectByType<PlayerController>();
+        if (chunkSpawner == null) chunkSpawner = FindFirstObjectByType<ChunkSpawner>();
+        if (obstacleSpawner == null) obstacleSpawner = FindFirstObjectByType<ObstacleSpawner>();
+        if (scoreManager == null) scoreManager = GetComponent<ScoreManager>();
+        if (cameraFollow == null) cameraFollow = FindFirstObjectByType<CameraFollow>();
     }
 
     private void OnDestroy()
@@ -47,49 +59,74 @@ public class GameManager : MonoBehaviour
         if (Instance == this) Instance = null;
     }
 
+    private void Start()
+    {
+        Time.timeScale = 1f;
+        ResetRun();
+
+        if (skipMenu) StartRun();
+        else SetState(GameState.Menu);
+    }
+
+    // ------------------------------------------------------------ переходы
+
+    public void StartRun()
+    {
+        ResetRun();
+        SetState(GameState.Running);
+        OnRunStarted?.Invoke();
+    }
+
+    public void Pause()
+    {
+        if (State != GameState.Running) return;
+
+        Time.timeScale = 0f;
+        SetState(GameState.Paused);
+    }
+
+    public void Resume()
+    {
+        if (State != GameState.Paused) return;
+
+        Time.timeScale = 1f;
+        SetState(GameState.Running);
+    }
+
     public void GameOver()
     {
-        if (CurrentState == State.Dead) return;
+        if (State != GameState.Running) return;
 
-        CurrentState = State.Dead;
-        _deathTime = Time.unscaledTime;
-
-        PlayerController player = FindFirstObjectByType<PlayerController>();
-        if (player != null) LastRunDistance = player.Distance;
-
+        LastRunDistance = player != null ? player.Distance : 0f;
+        SetState(GameState.Dead);
         OnGameOver?.Invoke();
     }
 
-    public void Restart()
+    public void GoToMenu()
     {
-        Scene scene = SceneManager.GetActiveScene();
-        SceneManager.LoadScene(scene.buildIndex);
+        Time.timeScale = 1f;
+        ResetRun();
+        SetState(GameState.Menu);
     }
 
-    private void Update()
+    private void SetState(GameState next)
     {
-        if (CurrentState != State.Dead) return;
-        if (Time.unscaledTime - _deathTime < restartInputDelay) return;
-
-        if (AnyInputThisFrame()) Restart();
+        State = next;
+        OnStateChanged?.Invoke(next);
     }
+
+    // --------------------------------------------------------------- сброс
 
     /// <summary>
-    /// Именно перечисленные клавиши, а не Keyboard.anyKey: anyKey в редакторе
-    /// ловит служебные нажатия и перезапускает забег сам по себе.
+    /// Возвращает мир в исходное состояние. Порядок важен: сначала игрок
+    /// встаёт на нулевую отметку, потом под него заново раскладывается трасса.
     /// </summary>
-    private static bool AnyInputThisFrame()
+    private void ResetRun()
     {
-        Keyboard keyboard = Keyboard.current;
-        if (keyboard != null &&
-            (keyboard.spaceKey.wasPressedThisFrame ||
-             keyboard.enterKey.wasPressedThisFrame ||
-             keyboard.rKey.wasPressedThisFrame))
-            return true;
-
-        Pointer pointer = Pointer.current;
-        if (pointer != null && pointer.press.wasPressedThisFrame) return true;
-
-        return false;
+        if (obstacleSpawner != null) obstacleSpawner.ResetRun();
+        if (player != null) player.ResetRun();
+        if (chunkSpawner != null) chunkSpawner.ResetRun();
+        if (scoreManager != null) scoreManager.ResetRun();
+        if (cameraFollow != null) cameraFollow.SnapToTarget();
     }
 }
