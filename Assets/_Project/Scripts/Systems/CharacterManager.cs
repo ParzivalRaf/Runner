@@ -244,12 +244,48 @@ public class CharacterManager : MonoBehaviour
         if (existing != null)
         {
             _modelRoot = existing;
+            NeutralizeVisualTransform(_modelRoot);
             return;
         }
 
         var go = new GameObject(ModelRootName);
         go.transform.SetParent(playerVisual, false);
         _modelRoot = go.transform;
+
+        NeutralizeVisualTransform(_modelRoot);
+    }
+
+    /// <summary>
+    /// Гасит собственные сдвиг и масштаб объекта Visual, чтобы модель
+    /// персонажа можно было делать в честных величинах.
+    ///
+    /// Visual — это капсула-заглушка: она поднята на 1 юнит и сплюснута
+    /// по горизонтали до 0.8. Модель висит внутри неё и наследует и то,
+    /// и другое. Без компенсации любой правильно сделанный персонаж
+    /// (пивот на полу, рост 2) оказался бы поднят на метр над дорогой
+    /// и сжат с боков — а причина была бы совершенно неочевидна.
+    ///
+    /// Компенсация пропорциональная, поэтому подкат её не ломает:
+    /// при подкате Visual сжимается и опускается на один и тот же
+    /// коэффициент, так что ноги модели остаются на полу, а сама она
+    /// приседает вместе с заглушкой — как и должна.
+    /// </summary>
+    private void NeutralizeVisualTransform(Transform modelRoot)
+    {
+        Vector3 scale = playerVisual.localScale;
+        Vector3 offset = playerVisual.localPosition;
+
+        modelRoot.localRotation = Quaternion.identity;
+
+        modelRoot.localScale = new Vector3(
+            Mathf.Approximately(scale.x, 0f) ? 1f : 1f / scale.x,
+            Mathf.Approximately(scale.y, 0f) ? 1f : 1f / scale.y,
+            Mathf.Approximately(scale.z, 0f) ? 1f : 1f / scale.z);
+
+        modelRoot.localPosition = new Vector3(
+            Mathf.Approximately(scale.x, 0f) ? 0f : -offset.x / scale.x,
+            Mathf.Approximately(scale.y, 0f) ? 0f : -offset.y / scale.y,
+            Mathf.Approximately(scale.z, 0f) ? 0f : -offset.z / scale.z);
     }
 
     private void ClearModelRoot()

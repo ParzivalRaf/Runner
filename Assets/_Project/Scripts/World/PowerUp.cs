@@ -51,6 +51,8 @@ public class PowerUp : MonoBehaviour
         PowerUpManager.Instance.Activate(type);
 
         if (AudioManager.Instance != null) AudioManager.Instance.PlayPowerUp();
+        if (GameFeel.Instance != null) GameFeel.Instance.PowerUp();
+        if (EffectManager.Instance != null) EffectManager.Instance.PlayCoin(visual.position);
 
         visual.gameObject.SetActive(false);
     }

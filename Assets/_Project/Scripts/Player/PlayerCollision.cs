@@ -26,14 +26,33 @@ public class PlayerCollision : MonoBehaviour
         if (PowerUpManager.Instance != null && PowerUpManager.Instance.IsInvincible)
         {
             obstacle.gameObject.SetActive(false);
+
+            // Проламывание сквозь препятствие обязано ощущаться как удар,
+            // иначе кофе выглядит так, будто препятствия просто исчезли.
+            if (GameFeel.Instance != null) GameFeel.Instance.Shake(0.35f);
+            if (EffectManager.Instance != null)
+                EffectManager.Instance.PlayCrash(transform.position + Vector3.up);
+
             return;
         }
 
-        // Щит персонажа — последний шанс. Тратится молча, одно столкновение
-        // за забег, и препятствие исчезает так же, как под кофе.
+        // Щит персонажа — последний шанс. Одно столкновение за забег,
+        // и препятствие исчезает так же, как под кофе. Раньше это
+        // происходило совершенно молча: игрок не понимал, что его спасли,
+        // и в следующий раз рассчитывал на щит, которого уже нет.
         if (CharacterManager.Instance != null && CharacterManager.Instance.TryConsumeShield())
         {
             obstacle.gameObject.SetActive(false);
+
+            if (GameFeel.Instance != null)
+            {
+                GameFeel.Instance.Shake(0.6f);
+                GameFeel.Instance.HitStop(0.07f);
+            }
+
+            if (EffectManager.Instance != null)
+                EffectManager.Instance.PlayCrash(transform.position + Vector3.up);
+
             return;
         }
 
@@ -41,6 +60,10 @@ public class PlayerCollision : MonoBehaviour
         // где именно игрок встретился с препятствием.
         if (EffectManager.Instance != null)
             EffectManager.Instance.PlayCrash(transform.position + Vector3.up);
+
+        // Хитстоп ДО GameOver: заморозка должна начаться в кадре удара,
+        // а не после того, как всплыл экран проигрыша.
+        if (GameFeel.Instance != null) GameFeel.Instance.Crash();
 
         GameManager.Instance.GameOver();
     }

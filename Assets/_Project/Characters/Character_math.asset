@@ -17,7 +17,7 @@ MonoBehaviour:
   catchPhrase: "\u0414\u0438\u0441\u0442\u0430\u043D\u0446\u0438\u044F \u2014 \u044D\u0442\u043E
     \u0438\u043D\u0442\u0435\u0433\u0440\u0430\u043B \u0441\u043A\u043E\u0440\u043E\u0441\u0442\u0438."
   tint: {r: 0.35, g: 0.62, b: 0.95, a: 1}
-  visualPrefab: {fileID: 0}
+  visualPrefab: {fileID: 919132149155446097, guid: a63046400db3642d192f5b73c7df0b1e, type: 3}
   price: 900
   unlockedByDefault: 0
   ability: 1

@@ -22,6 +22,11 @@ public class UIManager : MonoBehaviour
     [SerializeField] private GameObject settingsPanel;
     [SerializeField] private GameObject charactersPanel;
 
+    [Tooltip("Через сколько секунд после смерти появляется экран проигрыша. " +
+             "Эта пауза нужна, чтобы успел отыграть наезд камеры на лицо. " +
+             "Ноль — как было раньше, панель выскакивает мгновенно.")]
+    [SerializeField] private float gameOverDelay = 1.3f;
+
     [Header("Меню")]
     [SerializeField] private Text menuBestText;
     [SerializeField] private Text menuCoinsText;
@@ -190,13 +195,53 @@ public class UIManager : MonoBehaviour
         Show(menuPanel, state == GameState.Menu);
         Show(hudPanel, state == GameState.Running || state == GameState.Paused);
         Show(pausePanel, state == GameState.Paused);
-        Show(gameOverPanel, state == GameState.Dead);
 
         if (state != GameState.Menu) CloseOverlays();
 
         if (state == GameState.Menu) RefreshMenu();
-        if (state == GameState.Dead) RefreshGameOver();
         if (state == GameState.Running) UpdatePowerUpBars();
+
+        // Экран проигрыша появляется не сразу.
+        //
+        // Сразу — значит поверх наезда камеры на лицо, ровно в тот момент,
+        // ради которого наезд и делался. Персонажа не видно, кнопка «Заново»
+        // уже под пальцем, и игрок жмёт её не глядя.
+        //
+        // Пауза короткая: секунда с небольшим. Больше — начинает раздражать
+        // при быстрых перезапусках, а перезапуск здесь мгновенный и этим ценен.
+        if (state == GameState.Dead) ShowGameOverDelayed();
+        else CancelGameOverDelay();
+    }
+
+    private Coroutine _gameOverRoutine;
+
+    private void ShowGameOverDelayed()
+    {
+        CancelGameOverDelay();
+        _gameOverRoutine = StartCoroutine(GameOverAfterPause());
+    }
+
+    private void CancelGameOverDelay()
+    {
+        if (_gameOverRoutine != null)
+        {
+            StopCoroutine(_gameOverRoutine);
+            _gameOverRoutine = null;
+        }
+
+        Show(gameOverPanel, false);
+    }
+
+    private System.Collections.IEnumerator GameOverAfterPause()
+    {
+        // Нескалированное ожидание: в момент удара работает хитстоп,
+        // обычное время почти стоит, и на нём пауза растянулась бы.
+        yield return new WaitForSecondsRealtime(Mathf.Max(0f, gameOverDelay));
+
+        Show(gameOverPanel, true);
+        RefreshGameOver();
+
+        _gameOverRoutine = null;
     }
 
     private static void Show(GameObject panel, bool visible)

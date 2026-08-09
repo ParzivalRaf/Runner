@@ -168,6 +168,16 @@ public class AudioManager : MonoBehaviour
     public void PlayCrash() => Play(crashClip, 1f);
     public void PlayButton() => Play(buttonClip, 1f);
 
+    /// <summary>
+    /// Свист от пролетевшего впритирку препятствия.
+    ///
+    /// Отдельного клипа нет — берём звук подката и задираем высоту.
+    /// Подкат это шорох, а шорох на высокой скорости воспроизведения
+    /// и есть свист. Заводить ради этого ещё один синтезированный файл
+    /// смысла нет.
+    /// </summary>
+    public void PlayNearMiss() => Play(slideClip, Random.Range(1.7f, 1.9f));
+
     private void Play(AudioClip clip, float pitch)
     {
         if (clip == null || !SoundOn) return;

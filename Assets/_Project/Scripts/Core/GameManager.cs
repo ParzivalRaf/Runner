@@ -26,6 +26,7 @@ public class GameManager : MonoBehaviour
     [SerializeField] private CharacterManager characterManager;
     [SerializeField] private EffectManager effectManager;
     [SerializeField] private CameraFollow cameraFollow;
+    [SerializeField] private GameFeel gameFeel;
 
     [Header("Отладка")]
     [Tooltip("Игрок проходит сквозь препятствия. Нужно, чтобы тестировать генератор на длинных дистанциях.")]
@@ -58,6 +59,7 @@ public class GameManager : MonoBehaviour
         if (characterManager == null) characterManager = GetComponent<CharacterManager>();
         if (effectManager == null) effectManager = GetComponent<EffectManager>();
         if (cameraFollow == null) cameraFollow = FindFirstObjectByType<CameraFollow>();
+        if (gameFeel == null) gameFeel = GetComponent<GameFeel>();
     }
 
     private void OnDestroy()
@@ -149,5 +151,10 @@ public class GameManager : MonoBehaviour
         if (chunkSpawner != null) chunkSpawner.ResetRun();
         if (scoreManager != null) scoreManager.ResetRun();
         if (cameraFollow != null) cameraFollow.SnapToTarget();
+
+        // Последним: снимает недоигравший хитстоп и обнуляет тряску.
+        // Без этого рестарт сразу после смерти начинался бы в замедленном
+        // времени и с трясущейся камерой.
+        if (gameFeel != null) gameFeel.ResetRun();
     }
 }

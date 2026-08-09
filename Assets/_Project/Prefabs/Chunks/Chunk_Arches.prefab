@@ -1232,6 +1232,7 @@ GameObject:
   - component: {fileID: 7901116308958501669}
   - component: {fileID: 156556356706088479}
   - component: {fileID: 1335350079379939797}
+  - component: {fileID: 6507090152714294952}
   m_Layer: 0
   m_Name: Ground
   m_TagString: Untagged
@@ -1332,6 +1333,18 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!114 &6507090152714294952
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5742767792811533016}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 455a2af1ea90f494aa7b2983278f3440, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::GroundSurface
 --- !u!1 &6283972819955481901
 GameObject:
   m_ObjectHideFlags: 0

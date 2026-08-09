@@ -24,6 +24,47 @@ public class ObstacleSpawner : MonoBehaviour
     [SerializeField] private Obstacle jumpPrefab;
     [SerializeField] private Obstacle slidePrefab;
 
+    [Header("Поезда")]
+    [SerializeField] private Obstacle trainPrefab;
+
+    [Tooltip("Пандус, по которому вбегаешь на крышу. Без Obstacle: " +
+             "он не убивает, это просто наклонный пол.")]
+    [SerializeField] private GameObject rampPrefab;
+
+    [Tooltip("Вероятность, что в полосе начнётся состав.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float trainChance = 0.5f;
+
+    [Tooltip("Вероятность, что состав начнётся с пандуса, а не с глухого " +
+             "борта. Высокая намеренно: крыша задумана как маршрут, " +
+             "а не как трюк на реакцию.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float rampChance = 0.7f;
+
+    [Tooltip("Сколько чанков подряд может тянуться один состав. " +
+             "Отсюда берутся длинные пробежки по крышам.")]
+    [SerializeField] private int trainRunMinChunks = 1;
+    [SerializeField] private int trainRunMaxChunks = 3;
+
+    [Tooltip("Сколько чанков полоса обязана пустовать после конца состава, " +
+             "прежде чем в ней разрешат начать следующий.\n\n" +
+             "Ноль здесь ломал картинку: состав кончался, и в том же месте " +
+             "встык начинался новый — со своим пандусом. Внешне это один " +
+             "длинный поезд, у которого посреди крыши провал и въезд " +
+             "снизу. Игрок бежал по крыше и падал в дыру без причины.\n\n" +
+             "Один чанк это 30 юнитов — примерно секунда на полной скорости. " +
+             "Хватает, чтобы два состава читались как два разных поезда " +
+             "и чтобы было куда спрыгнуть.")]
+    [SerializeField] private int trainGapChunks = 1;
+
+    [Tooltip("С какой ступени сложности начинают появляться поезда. " +
+             "На нулевой не надо: игрок ещё не понял базовые правила.")]
+    [SerializeField] private int trainMinTier = 1;
+
+    [Tooltip("Вероятность дорожки монет на крыше поезда.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float roofCoinChance = 0.85f;
+
     [Header("Монеты")]
     [SerializeField] private Coin coinPrefab;
 
@@ -49,7 +90,10 @@ public class ObstacleSpawner : MonoBehaviour
 
     [Header("Настройки")]
     [Tooltip("Первые столько метров забега — без препятствий, чтобы игрок успел взяться за телефон.")]
-    [SerializeField] private float startSafeDistance = 45f;
+    // 20, а не 45: на стартовой скорости 14 это полторы секунды.
+    // Сорок пять метров пустой дороги — пять секунд, за которые игрок
+    // успевает решить, что игра медленная.
+    [SerializeField] private float startSafeDistance = 20f;
 
     [Tooltip("Минимальное расстояние между рядами, требующими прыжка/подката.")]
     [SerializeField] private float minActionSpacing = 22f;
@@ -79,8 +123,27 @@ public class ObstacleSpawner : MonoBehaviour
     private ObjectPool _coinPool;
     private Transform _poolRoot;
 
+    private ObjectPool _rampPool;
+
     private float _lastActionZ = -9999f;
     private bool[] _lastPassableLanes = { true, true, true };
+
+    // Сколько ЧАНКОВ ещё тянется состав в каждой полосе. Именно это поле
+    // делает пробежку по крышам длинной: состав не заканчивается на границе
+    // чанка, а продолжается в следующем, вагон встык к вагону.
+    private readonly int[] _trainChunksLeft = new int[3];
+
+    // Сколько ближайших РЯДОВ полоса обязана остаться пустой.
+    // Ставится там, где состав кончился: игрок спрыгивает с высоты 1.8,
+    // это около 7.2 юнита на максимальной скорости, а ряды стоят через 7.5.
+    // Без запаса он приземлялся бы прямо в препятствие.
+    private readonly int[] _laneClearRows = new int[3];
+
+    // Сколько ближайших ЧАНКОВ полоса обязана остаться без составов.
+    // Ставится в момент, когда состав кончился. Это не то же самое, что
+    // _laneClearRows: тот запрет про обычные препятствия и живёт один ряд,
+    // а этот — только про поезда и живёт целыми чанками.
+    private readonly int[] _trainGapLeft = new int[3];
 
     private bool _initialized;
 
@@ -97,9 +160,13 @@ public class ObstacleSpawner : MonoBehaviour
         CreateObstaclePool(blockPrefab);
         CreateObstaclePool(jumpPrefab);
         CreateObstaclePool(slidePrefab);
+        CreateObstaclePool(trainPrefab);
 
         if (coinPrefab != null)
-            _coinPool = new ObjectPool(coinPrefab.gameObject, _poolRoot, coinsPerChunk * 3);
+            _coinPool = new ObjectPool(coinPrefab.gameObject, _poolRoot, coinsPerChunk * 4);
+
+        if (rampPrefab != null)
+            _rampPool = new ObjectPool(rampPrefab, _poolRoot, 4);
 
         if (powerUpPrefabs != null)
         {
@@ -118,6 +185,13 @@ public class ObstacleSpawner : MonoBehaviour
 
         _lastActionZ = -9999f;
         _lastPassableLanes = new[] { true, true, true };
+
+        for (int lane = 0; lane < 3; lane++)
+        {
+            _trainChunksLeft[lane] = 0;
+            _laneClearRows[lane] = 0;
+            _trainGapLeft[lane] = 0;
+        }
     }
 
     private void CreateObstaclePool(Obstacle prefab)
@@ -141,8 +215,17 @@ public class ObstacleSpawner : MonoBehaviour
 
         List<PooledItem> list = GetList(chunk);
 
+        // Составы решаются ОДИН раз на весь чанк и занимают полосу целиком.
+        // Иначе игрок, бегущий по крыше, вылетал бы лбом в препятствие,
+        // поставленное в той же полосе следующим рядом: спрыгнуть с высоты
+        // 1.8 занимает около 0.3 секунды, а ряды стоят в 7.5 юнитах —
+        // на максимальной скорости это те же 0.3 секунды. Не успеть.
+        bool[] trainLanes = UpdateTrainRuns(tier, chunk, list);
+
         // Полосы, свободные во всех рядах этого чанка — по ним пустим монеты.
         bool[] freeForCoins = { true, true, true };
+        for (int lane = 0; lane < 3; lane++)
+            if (trainLanes[lane]) freeForCoins[lane] = false;
 
         foreach (int row in rows)
         {
@@ -152,11 +235,15 @@ public class ObstacleSpawner : MonoBehaviour
             // Стартовая зона: даём разбежаться, прежде чем швырять препятствия.
             if (anchor.position.z < startSafeDistance) continue;
 
-            string pattern = PickPattern(tier, anchor.position.z);
+            string pattern = PickPattern(tier, anchor.position.z, trainLanes);
             if (logPatterns) Debug.Log($"[Obstacles] z={anchor.position.z:F0} tier={tier} → {pattern}");
 
             if (ObstaclePatterns.RequiresAction(pattern)) _lastActionZ = anchor.position.z;
             _lastPassableLanes = ObstaclePatterns.PassableLanes(pattern);
+
+            // Обещание «полоса останется пустой» тратится ровно на один ряд.
+            for (int lane = 0; lane < 3; lane++)
+                if (_laneClearRows[lane] > 0) _laneClearRows[lane]--;
 
             for (int lane = 0; lane < 3; lane++)
             {
@@ -179,6 +266,181 @@ public class ObstacleSpawner : MonoBehaviour
 
         PlaceCoins(chunk, freeForCoins, list);
         PlacePowerUp(chunk, freeForCoins, list);
+    }
+
+    // --------------------------------------------------------------- составы
+
+    /// <summary>
+    /// Продлевает уже идущие составы, начинает новые и раскладывает вагоны.
+    /// Возвращает полосы, занятые составом в этом чанке.
+    ///
+    /// Два жёстких правила, на которых всё держится:
+    ///   1. Максимум ДВЕ полосы из трёх. Третья обязана остаться наземной,
+    ///      иначе гарантия проходимости превращается в «проходимо, если
+    ///      успеешь запрыгнуть».
+    ///   2. Составы не должны съесть ВСЕ полосы, проходимые в предыдущем ряду.
+    ///      Хотя бы одна обязана остаться, иначе следующему ряду не с чем
+    ///      будет разделить полосу и игрока заставят перестроиться там,
+    ///      где он не успеет.
+    /// </summary>
+    private bool[] UpdateTrainRuns(int tier, Chunk chunk, List<PooledItem> list)
+    {
+        var lanes = new bool[3];
+        if (trainPrefab == null) return lanes;
+
+        float chunkZ = chunk.transform.position.z;
+
+        // Сколько проходимых в предыдущем ряду полос ещё свободны от составов.
+        //
+        // Продолжающиеся составы тут не в счёт: если в полосе идёт состав,
+        // то и в прошлом чанке он там шёл, а значит эта полоса в предыдущем
+        // ряду проходимой не была.
+        //
+        // Раньше здесь стоял запрет только на ЕДИНСТВЕННУЮ проходимую полосу.
+        // Этого не хватало: при двух проходимых полосах два состава спокойно
+        // занимали обе. Симуляция ловила такое примерно раз на сто рядов.
+        int shareLeft = 0;
+        for (int lane = 0; lane < 3; lane++)
+            if (_lastPassableLanes[lane]) shareLeft++;
+
+        int active = 0;
+        for (int lane = 0; lane < 3; lane++)
+            if (_trainChunksLeft[lane] > 0) active++;
+
+        for (int lane = 0; lane < 3; lane++)
+        {
+            bool continuing = _trainChunksLeft[lane] > 0;
+            bool withRamp = false;
+
+            if (continuing)
+            {
+                _trainChunksLeft[lane]--;
+            }
+            else
+            {
+                // Полоса ещё «остывает» после предыдущего состава. Пока пауза
+                // не вышла, новый поезд тут не начинается — иначе он встанет
+                // встык к предыдущему и они прочитаются как один длинный
+                // состав с провалом и пандусом посередине крыши.
+                if (_trainGapLeft[lane] > 0)
+                {
+                    _trainGapLeft[lane]--;
+                    continue;
+                }
+
+                // Занять последнюю полосу, по которой можно было приехать
+                // из предыдущего ряда, нельзя ни при каких условиях.
+                bool eatsShare = _lastPassableLanes[lane];
+                if (eatsShare && shareLeft <= 1) continue;
+
+                bool allowed = tier >= trainMinTier
+                            && active < 2
+                            && chunkZ >= startSafeDistance
+                            && Random.value <= trainChance;
+
+                if (!allowed) continue;
+
+                _trainChunksLeft[lane] =
+                    Random.Range(trainRunMinChunks, trainRunMaxChunks + 1) - 1;
+
+                withRamp = _rampPool != null && Random.value <= rampChance;
+                active++;
+                if (eatsShare) shareLeft--;
+            }
+
+            lanes[lane] = true;
+            PlaceTrainRun(chunk, lane, withRamp, list);
+
+            // Состав кончается в этом чанке. Дальше два запрета:
+            //   ряд после него свободен от препятствий — игроку надо куда-то
+            //   приземлиться, спрыгнув с крыши;
+            //   и целый чанк свободен от новых составов — чтобы поезда
+            //   не слипались в один бесконечный с пандусами посередине.
+            if (_trainChunksLeft[lane] == 0)
+            {
+                _laneClearRows[lane] = 1;
+                _trainGapLeft[lane] = Mathf.Max(0, trainGapChunks);
+            }
+        }
+
+        return lanes;
+    }
+
+    /// <summary>
+    /// Выкладывает вагоны встык от начала чанка до конца. Первый слот может
+    /// занять пандус — тогда вагонов на один меньше.
+    /// </summary>
+    private void PlaceTrainRun(Chunk chunk, int lane, bool withRamp, List<PooledItem> list)
+    {
+        if (!_obstaclePools.TryGetValue(trainPrefab, out ObjectPool pool)) return;
+
+        const float segment = Obstacle.TrainMetrics.Length;
+
+        float laneX = (lane - 1) * 2.5f;
+        float chunkZ = chunk.transform.position.z;
+        int slots = Mathf.Max(1, Mathf.RoundToInt(chunk.Length / segment));
+
+        int first = 0;
+
+        if (withRamp)
+        {
+            GameObject ramp = _rampPool.Get();
+            ramp.transform.SetParent(chunk.transform, false);
+            ramp.transform.SetPositionAndRotation(
+                new Vector3(laneX, 0f, chunkZ), Quaternion.identity);
+
+            list.Add(new PooledItem { Instance = ramp, Pool = _rampPool });
+            first = 1;
+        }
+
+        for (int slot = first; slot < slots; slot++)
+        {
+            GameObject car = pool.Get();
+            car.transform.SetParent(chunk.transform, false);
+            car.transform.SetPositionAndRotation(
+                new Vector3(laneX, 0f, chunkZ + slot * segment), Quaternion.identity);
+
+            list.Add(new PooledItem { Instance = car, Pool = pool });
+        }
+
+        PlaceRoofCoins(chunk, lane, withRamp, list);
+    }
+
+    /// <summary>
+    /// Дорожка монет по крыше состава, а на первом чанке — прямо по пандусу.
+    ///
+    /// Монеты на подъёме не украшение, а указатель: игрок не обязан понимать
+    /// заранее, что по наклонной плите можно вбежать наверх. Цепочка монет,
+    /// уходящая вверх, объясняет это без единого слова обучения.
+    /// </summary>
+    private void PlaceRoofCoins(Chunk chunk, int lane, bool withRamp, List<PooledItem> list)
+    {
+        if (_coinPool == null || coinsPerChunk <= 0) return;
+        if (Random.value > roofCoinChance) return;
+
+        float laneX = (lane - 1) * 2.5f;
+        float chunkZ = chunk.transform.position.z;
+        float roof = Obstacle.TrainMetrics.RoofHeight;
+        float run = Obstacle.TrainMetrics.RampRun;
+
+        int count = Mathf.Max(3, coinsPerChunk);
+        float step = (chunk.Length - 2f) / (count - 1);
+
+        for (int i = 0; i < count; i++)
+        {
+            float localZ = 1f + step * i;
+
+            // Высота монеты повторяет профиль поверхности под ней.
+            float surface = withRamp && localZ < run ? roof * (localZ / run) : roof;
+
+            GameObject coin = _coinPool.Get();
+            coin.transform.SetParent(chunk.transform, false);
+            coin.transform.SetPositionAndRotation(
+                new Vector3(laneX, surface + coinHeight, chunkZ + localZ),
+                Quaternion.identity);
+
+            list.Add(new PooledItem { Instance = coin, Pool = _coinPool });
+        }
     }
 
     /// <summary>Вернуть всё содержимое чанка обратно в пулы.</summary>
@@ -280,11 +542,33 @@ public class ObstacleSpawner : MonoBehaviour
             case 'B': return blockPrefab;
             case 'J': return jumpPrefab;
             case 'S': return slidePrefab;
+
+            // 'T' сюда намеренно не попадает. Поезд длиной 13 юнитов не
+            // ставится в точку ряда, как остальные препятствия, — его кладёт
+            // PlaceTrain один раз на весь чанк.
             default: return null;
         }
     }
 
-    private string PickPattern(int tier, float worldZ)
+    /// <summary>
+    /// Приводит раскладку из таблицы к реальности этого чанка:
+    /// в полосах с составом ставит 'T', а в полосах, которым велено
+    /// оставаться пустыми (только что кончился состав), — точку.
+    /// </summary>
+    private string Adapt(string pattern, bool[] trainLanes)
+    {
+        char[] lanes = pattern.ToCharArray();
+
+        for (int lane = 0; lane < 3; lane++)
+        {
+            if (trainLanes[lane]) lanes[lane] = 'T';
+            else if (_laneClearRows[lane] > 0) lanes[lane] = '.';
+        }
+
+        return new string(lanes);
+    }
+
+    private string PickPattern(int tier, float worldZ, bool[] trainLanes)
     {
         IReadOnlyList<string> table = ObstaclePatterns.ForTier(tier);
         bool actionAllowed = worldZ - _lastActionZ >= minActionSpacing;
@@ -292,18 +576,24 @@ public class ObstacleSpawner : MonoBehaviour
         // Двадцати попыток с запасом хватает: подходящих раскладок в таблице много.
         for (int attempt = 0; attempt < 20; attempt++)
         {
-            string candidate = table[Random.Range(0, table.Count)];
+            string candidate = Adapt(table[Random.Range(0, table.Count)], trainLanes);
 
             if (!actionAllowed && ObstaclePatterns.RequiresAction(candidate)) continue;
 
             bool[] lanes = ObstaclePatterns.PassableLanes(candidate);
+
+            // Состав мог занять последнюю свободную полосу — в таблице такой
+            // раскладки быть не могло, а после подстановки может.
+            if (!ObstaclePatterns.HasPassableLane(lanes)) continue;
             if (!ObstaclePatterns.SharesLane(_lastPassableLanes, lanes)) continue;
 
             return candidate;
         }
 
         // Ничего не подошло — оставляем ряд пустым. Лучше скучный ряд,
-        // чем непроходимый.
-        return "...";
+        // чем непроходимый. С составами это как минимум одна свободная полоса,
+        // и она заведомо была проходима в предыдущем ряду: UpdateTrainRuns
+        // не даёт составу начаться в единственной проходимой полосе.
+        return Adapt("...", trainLanes);
     }
 }

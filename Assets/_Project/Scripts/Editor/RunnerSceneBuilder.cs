@@ -266,6 +266,8 @@ public static class RunnerSceneBuilder
         Obstacle block = CreateObstaclePrefab("Obstacle_Block", Obstacle.Kind.Block, mats);
         Obstacle jump = CreateObstaclePrefab("Obstacle_Jump", Obstacle.Kind.JumpOver, mats);
         Obstacle slide = CreateObstaclePrefab("Obstacle_Slide", Obstacle.Kind.SlideUnder, mats);
+        Obstacle train = CreateTrainPrefab(mats);
+        GameObject ramp = CreateRampPrefab(mats);
         Coin coin = CreateCoinPrefab(mats);
 
         var powerUps = new List<PowerUp>
@@ -278,6 +280,7 @@ public static class RunnerSceneBuilder
 
         GameObject player = BuildPlayer(mats);
         player.AddComponent<CoinMagnet>();
+        player.AddComponent<NearMissDetector>();
         CameraFollow follow = SetUpCamera(player.transform);
         SetUpLight();
 
@@ -290,6 +293,8 @@ public static class RunnerSceneBuilder
         obstacleSo.FindProperty("blockPrefab").objectReferenceValue = block;
         obstacleSo.FindProperty("jumpPrefab").objectReferenceValue = jump;
         obstacleSo.FindProperty("slidePrefab").objectReferenceValue = slide;
+        obstacleSo.FindProperty("trainPrefab").objectReferenceValue = train;
+        obstacleSo.FindProperty("rampPrefab").objectReferenceValue = ramp;
         obstacleSo.FindProperty("coinPrefab").objectReferenceValue = coin;
 
         SerializedProperty powerUpsProp = obstacleSo.FindProperty("powerUpPrefabs");
@@ -319,6 +324,8 @@ public static class RunnerSceneBuilder
 
         var audioManager = managerGo.AddComponent<AudioManager>();
         var effectManager = managerGo.AddComponent<EffectManager>();
+        var gameFeel = managerGo.AddComponent<GameFeel>();
+        var screenEffects = managerGo.AddComponent<ScreenEffects>();
 
         var charSo = new SerializedObject(characterManager);
         charSo.FindProperty("database").objectReferenceValue = EnsureCharacterDatabase();
@@ -369,7 +376,18 @@ public static class RunnerSceneBuilder
         gameSo.FindProperty("characterManager").objectReferenceValue = characterManager;
         gameSo.FindProperty("effectManager").objectReferenceValue = effectManager;
         gameSo.FindProperty("cameraFollow").objectReferenceValue = follow;
+        gameSo.FindProperty("gameFeel").objectReferenceValue = gameFeel;
         gameSo.ApplyModifiedPropertiesWithoutUndo();
+
+        var feelSo = new SerializedObject(gameFeel);
+        feelSo.FindProperty("cameraFollow").objectReferenceValue = follow;
+        feelSo.ApplyModifiedPropertiesWithoutUndo();
+
+        var screenSo = new SerializedObject(screenEffects);
+        screenSo.FindProperty("player").objectReferenceValue = player.GetComponent<PlayerController>();
+        // Ссылку на Global Volume не проставляем: он живёт в сцене отдельно
+        // от сборщика, и ScreenEffects находит его сам в Awake.
+        screenSo.ApplyModifiedPropertiesWithoutUndo();
 
         // Отладочный текст больше не нужен — но оставляем компонент,
         // чтобы можно было включить галочкой Show.
@@ -384,7 +402,12 @@ public static class RunnerSceneBuilder
 
         BuildUserInterface(player.GetComponent<PlayerController>(), scoreManager, characterManager);
 
-        Finish(player, "Полная сцена собрана: меню, HUD, бонусы, магазин, персонажи, звук, партиклы. Жми Play.");
+        // Внешний вид применяем последним: он перенастраивает солнце и камеру,
+        // которые выше создавались с базовыми значениями.
+        RunnerLookBuilder.Apply();
+
+        Finish(player, "Полная сцена собрана: меню, HUD, бонусы, магазин, персонажи, звук, партиклы, " +
+                       "постобработка и небо. Жми Play.");
     }
 
     private static PowerUp CreatePowerUpPrefab(PowerUpType type)
@@ -916,6 +939,14 @@ public static class RunnerSceneBuilder
                                new Vector2(0f, 1f), new Vector2(100f, -110f),
                                new Vector2(130f, 130f));
 
+        // Серия. Стоит под дистанцией по центру: это самое заметное место
+        // на экране, а цифра появляется редко и ненадолго, поэтому мешать
+        // не будет. Компонент сам подписывается на ScoreManager.
+        Text comboText = UIText("Combo", panel.transform, "", 78, TextAnchor.MiddleCenter,
+                                new Vector2(0.5f, 1f), new Vector2(0f, -240f),
+                                new Vector2(500f, 110f));
+        comboText.gameObject.AddComponent<ComboDisplay>();
+
         // Полоски активных бонусов — столбиком под кнопкой паузы.
         barRoots = new GameObject[4];
         barFills = new RectTransform[4];
@@ -1213,6 +1244,7 @@ public static class RunnerSceneBuilder
         public Material Jump;
         public Material Slide;
         public Material Coin;
+        public Material Train;
     }
 
     private static Materials LoadMaterials()
@@ -1230,7 +1262,12 @@ public static class RunnerSceneBuilder
             Block = GetOrCreateMaterial("M_ObstacleBlock", new Color(0.62f, 0.26f, 0.26f)),
             Jump = GetOrCreateMaterial("M_ObstacleJump", new Color(0.80f, 0.64f, 0.20f)),
             Slide = GetOrCreateMaterial("M_ObstacleSlide", new Color(0.24f, 0.44f, 0.70f)),
-            Coin = GetOrCreateMaterial("M_Coin", new Color(0.95f, 0.78f, 0.20f))
+            Coin = GetOrCreateMaterial("M_Coin", new Color(0.95f, 0.78f, 0.20f)),
+
+            // Бирюзовый: единственный цвет, который не занят ни одним
+            // «нельзя» — красным, жёлтым и синим. Поезд не запрещает,
+            // он предлагает, и цвет должен это говорить.
+            Train = GetOrCreateMaterial("M_Train", new Color(0.16f, 0.62f, 0.58f))
         };
     }
 
@@ -1290,6 +1327,148 @@ public static class RunnerSceneBuilder
         Object.DestroyImmediate(root);
 
         return saved.GetComponent<Obstacle>();
+    }
+
+    /// <summary>
+    /// Поезд. Устроен принципиально не так, как остальные препятствия:
+    /// у него ДВА коллайдера с разными задачами.
+    ///
+    ///   1. Триггер бортов, высотой до KillHeight (1.7) — убивает того,
+    ///      кто въехал сбоку.
+    ///   2. Обычный коллайдер крыши с меткой GroundSurface на высоте
+    ///      RoofHeight (1.8) — по нему игрок бежит.
+    ///
+    /// Между ними 0.1 юнита зазора. Он и делает всю механику возможной:
+    /// вставший на крышу игрок начинается на 1.8 и до триггера не достаёт,
+    /// а бегущий по земле занимает 0..2.0 и в триггер попадает.
+    /// Если зазор убрать, приземление на крышу станет смертью.
+    /// </summary>
+    private static Obstacle CreateTrainPrefab(Materials mats)
+    {
+        EnsureFolder(ProjectRoot + "/Prefabs");
+        EnsureFolder(ObstaclesFolder);
+
+        const float length = Obstacle.TrainMetrics.Length;
+        const float width = Obstacle.TrainMetrics.Width;
+        const float roof = Obstacle.TrainMetrics.RoofHeight;
+        const float kill = Obstacle.TrainMetrics.KillHeight;
+
+        float mid = length * 0.5f;
+
+        var root = new GameObject("Obstacle_Train");
+        Obstacle obstacle = root.AddComponent<Obstacle>();
+
+        var so = new SerializedObject(obstacle);
+        so.FindProperty("kind").enumValueIndex = (int)Obstacle.Kind.Train;
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        // Убивающий борт.
+        var trigger = root.AddComponent<BoxCollider>();
+        trigger.isTrigger = true;
+        trigger.center = new Vector3(0f, kill * 0.5f, mid);
+        trigger.size = new Vector3(width, kill, length);
+
+        // Корпус: чисто внешний вид, коллайдера у него нет.
+        Box("Body", root.transform, new Vector3(width, roof, length),
+            new Vector3(0f, roof * 0.5f, mid), mats.Train);
+
+        // Крыша: тонкая пластина, верх ровно на RoofHeight.
+        // Коллайдер НЕ триггер — иначе луч поиска пола её не увидит.
+        var roofGo = Box("Roof", root.transform, new Vector3(width, 0.12f, length),
+                         new Vector3(0f, roof - 0.06f, mid), mats.Marker,
+                         keepCollider: true);
+        roofGo.AddComponent<GroundSurface>();
+
+        // Светящаяся полоса по краю крыши. Это не украшение: игрок должен
+        // на скорости отличать «сюда можно запрыгнуть» от «сюда нельзя»,
+        // и цвет корпуса на таком расстоянии читается плохо.
+        for (int side = -1; side <= 1; side += 2)
+        {
+            Box($"Edge_{side}", root.transform,
+                new Vector3(0.12f, 0.16f, length),
+                new Vector3(side * (width * 0.5f - 0.06f), roof + 0.04f, mid),
+                mats.Marker);
+        }
+
+        string path = $"{ObstaclesFolder}/Obstacle_Train.prefab";
+        GameObject saved = PrefabUtility.SaveAsPrefabAsset(root, path);
+        Object.DestroyImmediate(root);
+
+        return saved.GetComponent<Obstacle>();
+    }
+
+    /// <summary>
+    /// Пандус: по нему вбегаешь на крышу состава, не прыгая.
+    ///
+    /// Никакого специального кода для наклона не потребовалось. Игрок ищет
+    /// пол лучом вниз, а луч одинаково хорошо попадает и в горизонтальную
+    /// плиту, и в наклонную. Подъём просто оказывается чуть выше ног
+    /// на каждом кадре, и игрок к нему прижимается — это тот же механизм,
+    /// что отрабатывает ступеньку.
+    ///
+    /// Уклон 1.8 на 6.5 — около 15 градусов. Специально пологий: на скорости
+    /// 24 ю/с при 60 кадрах поверхность поднимается на 0.11 за кадр,
+    /// а порог шага 0.35. Запас втрое даже при просадке до 20 кадров.
+    /// </summary>
+    private static GameObject CreateRampPrefab(Materials mats)
+    {
+        EnsureFolder(ProjectRoot + "/Prefabs");
+        EnsureFolder(ObstaclesFolder);
+
+        const float width = Obstacle.TrainMetrics.Width;
+        const float top = Obstacle.TrainMetrics.RoofHeight;
+        const float run = Obstacle.TrainMetrics.RampRun;
+        const float total = Obstacle.TrainMetrics.RampLength;
+        const float thickness = 0.3f;
+
+        var root = new GameObject("Train_Ramp");
+
+        // --- наклонная часть ---
+        float slopeLength = Mathf.Sqrt(run * run + top * top);
+        float angle = Mathf.Atan2(top, run) * Mathf.Rad2Deg;
+
+        GameObject slope = Box("Slope", root.transform,
+                               new Vector3(width, thickness, slopeLength),
+                               Vector3.zero, mats.Train, keepCollider: true);
+
+        // Поворот вокруг X на отрицательный угол поднимает дальний конец:
+        // при положительном Unity наклоняет +Z вниз.
+        slope.transform.localRotation = Quaternion.Euler(-angle, 0f, 0f);
+
+        // Ставим так, чтобы ВЕРХНЯЯ грань шла из (z=0, y=0) в (z=run, y=top).
+        // Центр коробки — это середина верхней грани, сдвинутая внутрь
+        // на половину толщины по нормали склона.
+        float rad = angle * Mathf.Deg2Rad;
+        slope.transform.localPosition = new Vector3(
+            0f,
+            top * 0.5f - thickness * 0.5f * Mathf.Cos(rad),
+            run * 0.5f + thickness * 0.5f * Mathf.Sin(rad));
+
+        slope.AddComponent<GroundSurface>();
+
+        // --- ровная площадка до самого вагона ---
+        float flat = total - run;
+        GameObject cap = Box("Cap", root.transform,
+                             new Vector3(width, thickness, flat),
+                             new Vector3(0f, top - thickness * 0.5f, run + flat * 0.5f),
+                             mats.Train, keepCollider: true);
+        cap.AddComponent<GroundSurface>();
+
+        // Светящаяся окантовка тем же материалом, что разметка: игрок уже
+        // читает этим цветом «сюда можно встать».
+        for (int side = -1; side <= 1; side += 2)
+        {
+            Box($"Edge_{side}", root.transform,
+                new Vector3(0.12f, 0.14f, flat),
+                new Vector3(side * (width * 0.5f - 0.06f), top + 0.05f, run + flat * 0.5f),
+                mats.Marker);
+        }
+
+        string path = $"{ObstaclesFolder}/Train_Ramp.prefab";
+        GameObject saved = PrefabUtility.SaveAsPrefabAsset(root, path);
+        Object.DestroyImmediate(root);
+
+        return saved;
     }
 
     // ============================================================ длинный пол
@@ -1363,10 +1542,15 @@ public static class RunnerSceneBuilder
         // Пивот в начале куска, кусок уходит вперёд на ChunkLength.
         float mid = ChunkLength * 0.5f;
 
-        Box("Ground", root.transform,
+        GameObject ground = Box("Ground", root.transform,
             new Vector3(TrackWidth, 1f, ChunkLength),
             new Vector3(0f, -0.5f, mid),
             mats.Ground, keepCollider: true);
+
+        // Без этой метки луч из-под ног игрока не найдёт вообще ничего,
+        // и он побежит по запасной нулевой высоте. Работать будет, но пол
+        // перестанет быть настоящим — и первая же эстакада это вскроет.
+        ground.AddComponent<GroundSurface>();
 
         for (int side = -1; side <= 1; side += 2)
         {

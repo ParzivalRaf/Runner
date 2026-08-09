@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -20,8 +21,12 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float laneChangeTime = 0.15f;
 
     [Header("Бег вперёд")]
-    [SerializeField] private float startSpeed = 8f;
-    [SerializeField] private float speedGainPerSecond = 0.15f;
+    // Стартовая скорость специально высокая: 14 из 24, а не 8.
+    // При 8 и разгоне 0.15 до потолка ехать 107 секунд — почти две минуты
+    // игрок бежит на трети от того темпа, ради которого игра сделана.
+    // Теперь потолок набирается за ~33 секунды, и первые секунды уже бодрые.
+    [SerializeField] private float startSpeed = 14f;
+    [SerializeField] private float speedGainPerSecond = 0.30f;
     [SerializeField] private float maxSpeed = 24f;
 
     [Header("Прыжок")]
@@ -46,6 +51,18 @@ public class PlayerController : MonoBehaviour
     [Tooltip("Слои препятствий. Если над головой препятствие, подкат не прервётся.")]
     [SerializeField] private LayerMask obstacleMask = 0;
 
+    [Header("Поверхность под ногами")]
+    [Tooltip("На сколько игрок готов подняться, наступив на что-то. Больше — " +
+             "начнёт запрыгивать на поезда сбоку вместо того, чтобы разбиться.")]
+    [SerializeField] private float stepUpTolerance = 0.35f;
+
+    [Tooltip("Насколько глубоко искать пол под ногами.")]
+    [SerializeField] private float surfaceProbeDepth = 8f;
+
+    [Tooltip("Самый крутой уклон, по которому игрок вбегает наверх, как тангенс. " +
+             "0.55 это примерно 29 градусов. Пандус к поездам положе — 15.")]
+    [SerializeField] private float maxClimbTangent = 0.55f;
+
     [Header("Ссылки")]
     [Tooltip("Компонент чтения свайпов. Обычно на этом же объекте.")]
     [SerializeField] private SwipeDetector swipeDetector;
@@ -60,7 +77,14 @@ public class PlayerController : MonoBehaviour
     private int _currentLane = 1;      // 0 = левая, 1 = центр, 2 = правая
     private float _targetX;
 
-    private float _groundY;
+    // Высота мирового пола. Служит запасным ответом, если луч вообще
+    // ничего не нашёл: лучше бежать по нулю, чем провалиться в бездну.
+    private float _baseGroundY;
+
+    // Высота поверхности, на которой игрок стоит прямо сейчас. Меняется,
+    // когда он запрыгивает на поезд и когда спрыгивает обратно.
+    private float _surfaceY;
+
     private float _verticalVelocity;
     private float _riseGravity;
     private float _jumpVelocity;
@@ -124,7 +148,8 @@ public class PlayerController : MonoBehaviour
 
         RecalculateJumpPhysics();
 
-        _groundY = transform.position.y;
+        _baseGroundY = transform.position.y;
+        _surfaceY = _baseGroundY;
         _currentSpeed = startSpeed;
         _currentLane = 1;
         _targetX = LaneToX(_currentLane);
@@ -189,7 +214,8 @@ public class PlayerController : MonoBehaviour
         _slideTimer = 0f;
         _slideQueuedOnLanding = false;
 
-        transform.position = new Vector3(_targetX, _groundY, 0f);
+        _surfaceY = _baseGroundY;
+        transform.position = new Vector3(_targetX, _baseGroundY, 0f);
         ApplyStandingCollider();
     }
 
@@ -202,9 +228,14 @@ public class PlayerController : MonoBehaviour
 
         UpdateSpeed(dt);
         UpdateLane(dt);
+
+        // Двигаемся вперёд ДО поиска пола: иначе луч щупает то место, где
+        // игрок был кадр назад, и на краю поезда он успевает шагнуть в пустоту
+        // раньше, чем игра это заметит.
+        MoveForward(dt);
+
         UpdateVertical(dt);
         UpdateSlide(dt);
-        MoveForward(dt);
     }
 
     // ------------------------------------------------------------- скорость
@@ -248,25 +279,122 @@ public class PlayerController : MonoBehaviour
 
     // --------------------------------------------------------------- прыжок
 
+    // Ровно столько игрок может «висеть» над поверхностью и всё ещё считаться
+    // стоящим. Без этого зазора он срывался бы в падение от любой мелочи.
+    private const float GroundStickTolerance = 0.05f;
+
+    private static readonly RaycastHit[] SurfaceHits = new RaycastHit[8];
+
+    // Ответ на вопрос «по этому коллайдеру можно бежать» кэшируется.
+    //
+    // Зачем: проверка идёт каждый кадр по каждому задетому коллайдеру, и
+    // раньше она каждый раз лезла вверх по всей иерархии объекта. На пустой
+    // дороге луч задевает один-два коллайдера и это ничего не стоило.
+    // На поезде их сразу несколько — вагоны, крыша, пандус, пол под составом,
+    // сам игрок — и цена выросла ровно там, где кадров и так меньше всего.
+    //
+    // Объекты берутся из пула и переиспользуются, поэтому набор коллайдеров
+    // конечный и словарь не растёт бесконечно.
+    private static readonly Dictionary<Collider, bool> SurfaceLookup = new Dictionary<Collider, bool>(64);
+
+    private static bool IsRunnable(Collider collider)
+    {
+        if (SurfaceLookup.TryGetValue(collider, out bool known)) return known;
+
+        bool runnable = collider.GetComponentInParent<GroundSurface>() != null;
+        SurfaceLookup[collider] = runnable;
+        return runnable;
+    }
+
+    /// <summary>
+    /// Высота поверхности под ногами: пол чанка, крыша поезда, площадка.
+    ///
+    /// Ключевая деталь — потолок поиска. Поверхность, которая ВЫШЕ ног больше
+    /// чем на stepUpTolerance, отбрасывается. Именно поэтому бегущий по земле
+    /// игрок не запрыгивает на поезд сбоку сам собой: крыша на высоте 1.8
+    /// просто не считается полом, пока игрок не поднялся к ней прыжком.
+    /// А врезавшись в борт, он умирает от триггера препятствия, как и должен.
+    /// </summary>
+    private float FindSurfaceY()
+    {
+        Vector3 origin = transform.position + Vector3.up * (standingHeight + 0.5f);
+        float length = standingHeight + 0.5f + surfaceProbeDepth;
+
+        // QueryTriggerInteraction.Ignore принципиален: препятствия — триггеры,
+        // и бежать по ним нельзя. Проходимыми считаются только обычные
+        // коллайдеры с меткой GroundSurface.
+        int count = Physics.RaycastNonAlloc(origin, Vector3.down, SurfaceHits, length,
+                                            ~0, QueryTriggerInteraction.Ignore);
+
+        // Порог подъёма растёт вместе с пройденным за кадр расстоянием.
+        // Без этого пандус ломался бы при просадке кадров: на 60 кадрах
+        // поверхность поднимается на 0.11 за кадр и порог 0.35 её берёт,
+        // а на 20 кадрах — уже на 0.33, и игрок сваливался бы с подъёма
+        // ровно в тот момент, когда игре и так плохо.
+        //
+        // Вертикальный борт вагона этим не пробить: чтобы порог дорос
+        // до 1.8, игре надо просесть примерно до восьми кадров в секунду.
+        float climbAllowance = CurrentSpeed * Time.deltaTime * maxClimbTangent;
+        float ceiling = transform.position.y + stepUpTolerance + climbAllowance;
+
+        float best = _baseGroundY;
+
+        for (int i = 0; i < count; i++)
+        {
+            if (!IsRunnable(SurfaceHits[i].collider)) continue;
+
+            float y = SurfaceHits[i].point.y;
+            if (y > ceiling) continue;      // слишком высоко, туда не наступить
+            if (y > best) best = y;         // из подходящих берём самую верхнюю
+        }
+
+        return best;
+    }
+
     private void UpdateVertical(float dt)
     {
-        if (_isGrounded) return;
+        _surfaceY = FindSurfaceY();
+
+        Vector3 position = transform.position;
+
+        if (_isGrounded)
+        {
+            // Поверхность ушла из-под ног — кончился поезд, кончилась эстакада.
+            if (position.y > _surfaceY + GroundStickTolerance)
+            {
+                _isGrounded = false;
+                _verticalVelocity = 0f;
+            }
+            else
+            {
+                // Прижимаемся к поверхности. Небольшой подъём отрабатывается
+                // здесь же как ступенька — отдельного кода для неё не нужно.
+                position.y = _surfaceY;
+                transform.position = position;
+                return;
+            }
+        }
 
         float gravity = _riseGravity;
         if (_verticalVelocity < 0f)
             gravity *= _isFastFalling ? fastFallMultiplier : fallGravityMultiplier;
 
         _verticalVelocity -= gravity * dt;
-
-        Vector3 position = transform.position;
         position.y += _verticalVelocity * dt;
 
-        if (position.y <= _groundY)
+        // Приземляемся только на спуске. Иначе прыжок с земли на поезд
+        // защёлкивался бы на крыше на полпути вверх: крыша становится
+        // «полом» уже на высоте 1.45, а игрок в этот момент ещё летит вверх.
+        if (_verticalVelocity <= 0f && position.y <= _surfaceY)
         {
-            position.y = _groundY;
+            position.y = _surfaceY;
             _verticalVelocity = 0f;
             _isGrounded = true;
             _isFastFalling = false;
+
+            // Приземление само по себе почти незаметно, но без него прыжок
+            // ощущается как парение: вверх есть, а возвращения веса нет.
+            if (GameFeel.Instance != null) GameFeel.Instance.Land();
 
             if (_slideQueuedOnLanding)
             {
