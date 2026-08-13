@@ -1,0 +1,13 @@
+# Runner asset kit (procedural)
+newmtl gold
+Kd 0.8879 0.4508 0.0232
+Ks 0.2000 0.2000 0.2000
+Ns 140
+d 1.0000
+
+newmtl goldDark
+Kd 0.6308 0.2542 0.0060
+Ks 0.2000 0.2000 0.2000
+Ns 130
+d 1.0000
+

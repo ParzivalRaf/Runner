@@ -80,21 +80,21 @@ public sealed class CampusBackgroundLayers : MonoBehaviour
 
     private void BuildNearCampus()
     {
-        GameObject buildingA = Resources.Load<GameObject>("CampusRush/HeroKit/CR_CampusBuilding_A");
-        GameObject buildingB = Resources.Load<GameObject>("CampusRush/HeroKit/CR_CampusBuilding_B");
-        GameObject tower = Resources.Load<GameObject>("CampusRush/HeroKit/CR_ClockTower");
-        GameObject tree = Resources.Load<GameObject>("CampusRush/HeroKit/CR_CampusTree");
+        GameObject buildingA = CampusRushModels.Load(ArtRole.BuildingA);
+        GameObject buildingB = CampusRushModels.Load(ArtRole.BuildingB);
+        GameObject tower = CampusRushModels.Load(ArtRole.ClockTower);
+        GameObject tree = CampusRushModels.Load(ArtRole.Tree);
 
-        Hero(_near, buildingA, new Vector3(-20f, -2f, 5f), Quaternion.Euler(0, 20, 0), 1.45f);
-        Hero(_near, buildingB, new Vector3(19f, -2f, 9f), Quaternion.Euler(0, -24, 0), 1.38f);
-        Hero(_near, tower, new Vector3(11f, -2f, 21f), Quaternion.Euler(0, 0, 0), 1.32f);
+        Hero(_near, buildingA, ArtRole.BuildingA, new Vector3(-20f, -2f, 5f), Quaternion.Euler(0, 20, 0), 1.45f);
+        Hero(_near, buildingB, ArtRole.BuildingB, new Vector3(19f, -2f, 9f), Quaternion.Euler(0, -24, 0), 1.38f);
+        Hero(_near, tower, ArtRole.ClockTower, new Vector3(11f, -2f, 21f), Quaternion.Euler(0, 0, 0), 1.32f);
 
         for (int side = -1; side <= 1; side += 2)
         {
             for (int i = 0; i < 4; i++)
             {
                 float x = side * (10.5f + i * 4.6f);
-                Hero(_near, tree, new Vector3(x, -1.8f, 2f + i * 5f),
+                Hero(_near, tree, ArtRole.Tree, new Vector3(x, -1.8f, 2f + i * 5f),
                     Quaternion.Euler(0, i * 37f, 0), 1.15f - i * 0.08f);
             }
         }
@@ -162,14 +162,14 @@ public sealed class CampusBackgroundLayers : MonoBehaviour
         }
     }
 
-    private static void Hero(Transform parent, GameObject source, Vector3 position,
+    private static void Hero(Transform parent, GameObject source, ArtRole role, Vector3 position,
                              Quaternion rotation, float scale)
     {
         if (source == null) return;
         GameObject instance = Instantiate(source, parent);
         instance.name = source.name + "_Backdrop";
         instance.transform.localPosition = position;
-        instance.transform.localRotation = rotation * CampusRushModels.HeroAxisFix;
+        instance.transform.localRotation = rotation * CampusRushModels.AxisFix(role);
         instance.transform.localScale = Vector3.one * Mathf.Abs(scale);
         foreach (Transform child in instance.GetComponentsInChildren<Transform>(true))
         {
@@ -180,7 +180,8 @@ public sealed class CampusBackgroundLayers : MonoBehaviour
         foreach (Collider collider in instance.GetComponentsInChildren<Collider>(true)) Destroy(collider);
         foreach (Renderer renderer in instance.GetComponentsInChildren<Renderer>(true))
         {
-            renderer.sharedMaterial = HeroMaterial.For(renderer.gameObject.name);
+            if (!CampusRushModels.UseImportedMaterials)
+                renderer.sharedMaterial = HeroMaterial.For(renderer.gameObject.name);
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = false;
         }

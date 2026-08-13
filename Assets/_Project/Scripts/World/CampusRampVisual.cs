@@ -17,15 +17,15 @@ public sealed class CampusRampVisual : MonoBehaviour
         foreach (Renderer renderer in GetComponentsInChildren<Renderer>(true))
             renderer.enabled = false;
 
-        GameObject source = Resources.Load<GameObject>("CampusRush/HeroKit/CR_TrainRamp");
+        GameObject source = CampusRushModels.Load(ArtRole.Ramp);
         if (source == null) return;
 
         var artRoot = new GameObject(RootName).transform;
         artRoot.SetParent(transform, false);
         GameObject model = Instantiate(source, artRoot);
-        model.name = "CR_TrainRamp";
+        model.name = "Ramp";
         model.transform.localPosition = Vector3.zero;
-        model.transform.localRotation = CampusRushModels.HeroAxisFix;
+        model.transform.localRotation = CampusRushModels.AxisFix(ArtRole.Ramp);
         model.transform.localScale = Vector3.one;
 
         foreach (Collider collider in model.GetComponentsInChildren<Collider>(true))
@@ -34,7 +34,8 @@ public sealed class CampusRampVisual : MonoBehaviour
         foreach (Renderer renderer in model.GetComponentsInChildren<Renderer>(true))
         {
             renderer.enabled = true;
-            renderer.sharedMaterial = HeroMaterial.For(renderer.gameObject.name);
+            if (!CampusRushModels.UseImportedMaterials)
+                renderer.sharedMaterial = HeroMaterial.For(renderer.gameObject.name);
             renderer.shadowCastingMode = ShadowCastingMode.On;
             renderer.receiveShadows = true;
         }

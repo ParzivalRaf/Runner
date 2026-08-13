@@ -28,6 +28,18 @@ public static class RunnerProjectValidator
         }
 
         report.Add("✓ Персонажей с временной цветной капсулой: " + fallbackCount + ".");
+
+        // Набор моделей: показываем, что активно и не пустует ли какая-то роль.
+        // Роль без модели не ломает игру — она берётся из Original, — но
+        // сравнение наборов при этом уже не про то, что кажется.
+        var missing = new List<string>();
+        foreach (ArtRole role in System.Enum.GetValues(typeof(ArtRole)))
+            if (CampusRushModels.Load(role) == null) missing.Add(role.ToString());
+
+        report.Add("✓ Набор моделей: " + CampusRushModels.Active + ".");
+        report.Add(missing.Count == 0
+            ? "✓ Модель есть у каждой роли."
+            : "✗ Нет модели у ролей: " + string.Join(", ", missing));
         string message = string.Join("\n", report);
         Debug.Log("[Runner] " + message.Replace("\n", " | "));
         EditorUtility.DisplayDialog("Проверка Runner", message, "Ок");

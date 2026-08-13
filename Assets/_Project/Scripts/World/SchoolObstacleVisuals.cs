@@ -37,19 +37,19 @@ public static class SchoolObstacleVisuals
         switch (obstacle.ObstacleKind)
         {
             case Obstacle.Kind.Block:
-                BuildAuthoredModel(root, "CR_Locker");
+                BuildAuthoredModel(root, ArtRole.ObstacleBlock);
                 break;
 
             case Obstacle.Kind.JumpOver:
-                BuildAuthoredModel(root, "HeroKit/CR_Barricade");
+                BuildAuthoredModel(root, ArtRole.ObstacleJump);
                 break;
 
             case Obstacle.Kind.SlideUnder:
-                BuildAuthoredModel(root, "CR_SlideGate");
+                BuildAuthoredModel(root, ArtRole.ObstacleSlide);
                 break;
 
             case Obstacle.Kind.Train:
-                BuildAuthoredModel(root, "HeroKit/CR_CampusTrain");
+                BuildAuthoredModel(root, ArtRole.Train);
                 break;
         }
     }
@@ -63,21 +63,22 @@ public static class SchoolObstacleVisuals
         }
     }
 
-    private static void BuildAuthoredModel(Transform root, string resourceName)
+    private static void BuildAuthoredModel(Transform root, ArtRole role)
     {
-        GameObject source = Resources.Load<GameObject>("CampusRush/" + resourceName);
+        GameObject source = CampusRushModels.Load(role);
         if (source == null)
         {
-            Debug.LogWarning("[SchoolObstacleVisuals] Missing Campus Rush model: " + resourceName);
+            Debug.LogWarning("[SchoolObstacleVisuals] Нет модели для роли " + role);
             return;
         }
 
         GameObject model = Object.Instantiate(source, root);
-        model.name = resourceName.Substring(resourceName.LastIndexOf('/') + 1);
+        model.name = role.ToString();
         model.transform.localPosition = Vector3.zero;
         // Поворот берётся из CampusRushModels: базовый набор приходит ровно,
         // геройский надо доворачивать, пока он не переэкспортирован.
-        model.transform.localRotation = CampusRushModels.AxisFix(resourceName);
+        // У чужих наборов оси запечены в префаб при импорте — там identity.
+        model.transform.localRotation = CampusRushModels.AxisFix(role);
         model.transform.localScale = Vector3.one;
 
         foreach (Transform node in model.GetComponentsInChildren<Transform>(true))
@@ -92,7 +93,12 @@ public static class SchoolObstacleVisuals
 
         foreach (Renderer renderer in model.GetComponentsInChildren<Renderer>(true))
         {
-            renderer.sharedMaterial = MaterialForPart(renderer.gameObject.name);
+            // Палитра по именам частей рассчитана на имена Original
+            // («Cobalt», «Gold», «Brick»). В чужих наборах имена другие,
+            // и такая покраска сделала бы их одноцветными — оставляем
+            // материалы из файла.
+            if (!CampusRushModels.UseImportedMaterials)
+                renderer.sharedMaterial = MaterialForPart(renderer.gameObject.name);
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
             renderer.receiveShadows = true;
         }

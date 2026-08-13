@@ -1,0 +1,19 @@
+# Runner asset kit (procedural)
+newmtl bark
+Kd 0.1946 0.0844 0.0296
+Ks 0.2000 0.2000 0.2000
+Ns 70
+d 1.0000
+
+newmtl foliage
+Kd 0.0782 0.3278 0.0497
+Ks 0.2000 0.2000 0.2000
+Ns 70
+d 1.0000
+
+newmtl foliageDark
+Kd 0.0452 0.1946 0.0307
+Ks 0.2000 0.2000 0.2000
+Ns 70
+d 1.0000
+

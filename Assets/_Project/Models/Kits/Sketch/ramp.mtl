@@ -1,0 +1,25 @@
+# Runner asset kit (procedural)
+newmtl concrete
+Kd 0.6240 0.5647 0.4564
+Ks 0.2000 0.2000 0.2000
+Ns 70
+d 1.0000
+
+newmtl blue
+Kd 0.0467 0.1812 0.6584
+Ks 0.2000 0.2000 0.2000
+Ns 70
+d 1.0000
+
+newmtl yellow
+Kd 0.9131 0.4508 0.0168
+Ks 0.2000 0.2000 0.2000
+Ns 70
+d 1.0000
+
+newmtl greyDark
+Kd 0.0865 0.0976 0.1144
+Ks 0.2000 0.2000 0.2000
+Ns 70
+d 1.0000
+

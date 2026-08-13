@@ -94,13 +94,13 @@ public static class SchoolChunkVisuals
 
         // Authored, rounded props break up the repeated box geometry and
         // establish the friendly campus identity without obstructing lanes.
-        BuildCampusProp(root, "CR_Planter", new Vector3(-7.72f, 0f, 4.4f),
+        BuildCampusProp(root, ArtRole.Planter, new Vector3(-7.72f, 0f, 4.4f),
             Quaternion.Euler(0f, 18f, 0f), 0.80f);
-        BuildCampusProp(root, "CR_Bench", new Vector3(7.78f, 0f, 8.5f),
+        BuildCampusProp(root, ArtRole.Bench, new Vector3(7.78f, 0f, 8.5f),
             Quaternion.Euler(0f, -90f, 0f), 0.82f);
-        BuildCampusProp(root, "CR_Lamp", new Vector3(-7.78f, 0f, 17.2f),
+        BuildCampusProp(root, ArtRole.Lamp, new Vector3(-7.78f, 0f, 17.2f),
             Quaternion.Euler(0f, 0f, 0f), 0.82f);
-        BuildCampusProp(root, "CR_Planter", new Vector3(7.72f, 0f, 25.0f),
+        BuildCampusProp(root, ArtRole.Planter, new Vector3(7.72f, 0f, 25.0f),
             Quaternion.Euler(0f, -22f, 0f), 0.74f);
     }
 
@@ -296,25 +296,26 @@ public static class SchoolChunkVisuals
         {
             for (int slot = 0; slot < 1; slot++)
             {
-                GameObject source = ((slot + side + variant) & 1) == 0
-                    ? _campusBuildingA : _campusBuildingB;
+                bool first = ((slot + side + variant) & 1) == 0;
+                GameObject source = first ? _campusBuildingA : _campusBuildingB;
+                ArtRole role = first ? ArtRole.BuildingA : ArtRole.BuildingB;
                 float z = 17.0f;
-                BuildHeroProp(root, source,
+                BuildHeroProp(root, source, role,
                     new Vector3(side * 14.5f, 0f, z),
                     Quaternion.Euler(0f, side < 0 ? -90f : 90f, 0f),
                     0.78f);
             }
 
-            BuildHeroProp(root, _campusTree, new Vector3(side * 9.5f, 0f, 5.8f),
+            BuildHeroProp(root, _campusTree, ArtRole.Tree, new Vector3(side * 9.5f, 0f, 5.8f),
                 Quaternion.Euler(0f, side * 18f, 0f), 1.22f);
-            BuildHeroProp(root, _campusTree, new Vector3(side * 10.0f, 0f, 24.0f),
+            BuildHeroProp(root, _campusTree, ArtRole.Tree, new Vector3(side * 10.0f, 0f, 24.0f),
                 Quaternion.Euler(0f, side * -22f, 0f), 1.08f);
             BuildCampusFlag(root, side, 7.0f);
             BuildCampusFlag(root, side, 22.5f);
         }
 
         if (variant == 0)
-            BuildHeroProp(root, _clockTower, new Vector3(14.5f, 0f, 25f),
+            BuildHeroProp(root, _clockTower, ArtRole.ClockTower, new Vector3(14.5f, 0f, 25f),
                 Quaternion.Euler(0f, 90f, 0f), 0.82f);
     }
 
@@ -361,21 +362,21 @@ public static class SchoolChunkVisuals
         _cityBuildings = buildings.ToArray();
         _largeTree = Resources.Load<GameObject>("RunnerVisuals/City/tree-large");
         _smallTree = Resources.Load<GameObject>("RunnerVisuals/City/tree-small");
-        _campusBuildingA = Resources.Load<GameObject>("CampusRush/HeroKit/CR_CampusBuilding_A");
-        _campusBuildingB = Resources.Load<GameObject>("CampusRush/HeroKit/CR_CampusBuilding_B");
-        _clockTower = Resources.Load<GameObject>("CampusRush/HeroKit/CR_ClockTower");
-        _campusTree = Resources.Load<GameObject>("CampusRush/HeroKit/CR_CampusTree");
-        _campusBanner = Resources.Load<GameObject>("CampusRush/HeroKit/CR_CampusBanner");
+        _campusBuildingA = CampusRushModels.Load(ArtRole.BuildingA);
+        _campusBuildingB = CampusRushModels.Load(ArtRole.BuildingB);
+        _clockTower = CampusRushModels.Load(ArtRole.ClockTower);
+        _campusTree = CampusRushModels.Load(ArtRole.Tree);
+        _campusBanner = CampusRushModels.Load(ArtRole.Banner);
     }
 
-    private static void BuildHeroProp(Transform root, GameObject source, Vector3 position,
-                                      Quaternion rotation, float scale)
+    private static void BuildHeroProp(Transform root, GameObject source, ArtRole role,
+                                      Vector3 position, Quaternion rotation, float scale)
     {
         if (source == null) return;
         GameObject instance = Object.Instantiate(source, root);
         instance.name = source.name;
         instance.transform.localPosition = position;
-        instance.transform.localRotation = rotation * CampusRushModels.HeroAxisFix;
+        instance.transform.localRotation = rotation * CampusRushModels.AxisFix(role);
         instance.transform.localScale = Vector3.one * scale;
         foreach (Transform node in instance.GetComponentsInChildren<Transform>(true))
         {
@@ -387,7 +388,10 @@ public static class SchoolChunkVisuals
             Object.Destroy(collider);
         foreach (Renderer renderer in instance.GetComponentsInChildren<Renderer>(true))
         {
-            renderer.sharedMaterial = CampusMaterialForPart(renderer.gameObject.name);
+            // Покраска по именам частей — только для Original: у чужих
+            // наборов другие имена, и она сделала бы их одноцветными.
+            if (!CampusRushModels.UseImportedMaterials)
+                renderer.sharedMaterial = CampusMaterialForPart(renderer.gameObject.name);
             renderer.shadowCastingMode = ShadowCastingMode.On;
             renderer.receiveShadows = true;
         }
@@ -429,17 +433,17 @@ public static class SchoolChunkVisuals
         }
     }
 
-    private static void BuildCampusProp(Transform root, string resourceName,
+    private static void BuildCampusProp(Transform root, ArtRole role,
                                         Vector3 position, Quaternion rotation, float scale)
     {
-        GameObject source = Resources.Load<GameObject>("CampusRush/" + resourceName);
+        GameObject source = CampusRushModels.Load(role);
         if (source == null) return;
 
         GameObject instance = Object.Instantiate(source, root);
-        instance.name = resourceName;
+        instance.name = role.ToString();
         instance.layer = IgnoreRaycastLayer;
         instance.transform.localPosition = position;
-        instance.transform.localRotation = rotation * CampusRushModels.AxisFix(resourceName);
+        instance.transform.localRotation = rotation * CampusRushModels.AxisFix(role);
         instance.transform.localScale = Vector3.one * scale;
 
         foreach (Transform node in instance.GetComponentsInChildren<Transform>(true))
@@ -450,7 +454,8 @@ public static class SchoolChunkVisuals
 
         foreach (Renderer renderer in instance.GetComponentsInChildren<Renderer>(true))
         {
-            renderer.sharedMaterial = CampusMaterialForPart(renderer.gameObject.name);
+            if (!CampusRushModels.UseImportedMaterials)
+                renderer.sharedMaterial = CampusMaterialForPart(renderer.gameObject.name);
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
             renderer.receiveShadows = true;
         }

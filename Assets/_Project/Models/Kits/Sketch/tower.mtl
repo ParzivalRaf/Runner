@@ -1,0 +1,25 @@
+# Runner asset kit (procedural)
+newmtl cream
+Kd 0.8070 0.6939 0.5089
+Ks 0.2000 0.2000 0.2000
+Ns 70
+d 1.0000
+
+newmtl silver
+Kd 0.6795 0.7157 0.7682
+Ks 0.2000 0.2000 0.2000
+Ns 120
+d 1.0000
+
+newmtl paleblue
+Kd 0.3419 0.5647 0.8550
+Ks 0.2000 0.2000 0.2000
+Ns 70
+d 1.0000
+
+newmtl red
+Kd 0.5395 0.0423 0.0284
+Ks 0.2000 0.2000 0.2000
+Ns 70
+d 1.0000
+
