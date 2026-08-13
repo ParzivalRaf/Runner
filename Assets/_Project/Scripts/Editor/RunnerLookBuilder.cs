@@ -38,6 +38,14 @@ public static class RunnerLookBuilder
 
     private static readonly Color FogTint = new Color(0.58f, 0.78f, 0.86f);
 
+    /// <summary>
+    /// Сила рассеянного света от неба. Было 1.05 — тени заливались
+    /// и предметы теряли объём: разница между освещённой и теневой
+    /// стороной почти пропадала. 0.85 возвращает объём, ниже опускать
+    /// не стоит — мир станет мрачным, а игра про солнечный день.
+    /// </summary>
+    private const float AmbientIntensity = 0.85f;
+
     [MenuItem("Tools/Runner/Внешний вид — применить")]
     public static void ApplyFromMenu()
     {
@@ -59,6 +67,7 @@ public static class RunnerLookBuilder
         VolumeProfile profile = BuildPostProcessProfile();
         AttachProfileToGlobalVolume(profile);
 
+        SetUpPipeline(economy: false);
         SetUpSky();
         SetUpFog();
         SetUpSun();
@@ -66,6 +75,102 @@ public static class RunnerLookBuilder
         RepaintPalette();
 
         DynamicGI.UpdateEnvironment();
+    }
+
+    /// <summary>
+    /// Экономный режим: то же самое, но с выключенными дорогими вещами.
+    /// Нужен, чтобы замерить, во сколько кадров обходится красота.
+    /// Порядок замера: этим пунктом снять число, обычным — снять снова,
+    /// разница и есть цена.
+    /// </summary>
+    [MenuItem("Tools/Runner/Внешний вид — экономный (для замеров FPS)")]
+    public static void ApplyEconomy()
+    {
+        VolumeProfile profile = BuildPostProcessProfile();
+        AttachProfileToGlobalVolume(profile);
+
+        SetUpPipeline(economy: true);
+        SetUpSky();
+        SetUpFog();
+        SetUpSun();
+        SetUpCamera();
+        RepaintPalette();
+
+        DynamicGI.UpdateEnvironment();
+        EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
+        AssetDatabase.SaveAssets();
+
+        Debug.Log("[RunnerLookBuilder] Экономный режим: сглаживание выключено, " +
+                  "рендер в 80% разрешения, тени жёсткие и в один каскад. " +
+                  "Вернуть красоту — «Внешний вид — применить».");
+    }
+
+    // ========================================================== настройки URP
+
+    /// <summary>
+    /// Настройки самого пайплайна. Их не видно в сцене, но они решают
+    /// больше, чем половина постобработки.
+    ///
+    /// ЧТО БЫЛО НЕ ТАК. В обоих ассетах стояло m_SoftShadowsSupported = 0,
+    /// а солнцу в коде назначались мягкие тени. Пайплайн такую настройку
+    /// молча выбрасывает: тени рисовались жёсткими, с рваным краем.
+    /// Настройка была, эффекта не было — поэтому этого и не искали.
+    ///
+    /// ЦЕНА КАЖДОГО ПУНКТА НА ТЕЛЕФОНЕ (порядок величин, проверять замером):
+    /// - сглаживание MSAA 2x: на плиточных мобильных GPU дёшево, единицы
+    ///   процентов, потому что происходит внутри тайла;
+    /// - масштаб рендера 0.8 → 1.0: самый дорогой пункт, пикселей
+    ///   становится в полтора раза больше. Зато пропадает мыло;
+    /// - мягкие тени: один лишний проход фильтрации по карте теней;
+    /// - два каскада вместо одного: карта теней рисуется дважды,
+    ///   но ближние тени перестают быть лесенкой.
+    /// </summary>
+    private static void SetUpPipeline(bool economy)
+    {
+        foreach (string guid in AssetDatabase.FindAssets("t:UniversalRenderPipelineAsset"))
+        {
+            string path = AssetDatabase.GUIDToAssetPath(guid);
+            var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
+            if (asset == null) continue;
+
+            var so = new SerializedObject(asset);
+
+            // Поля закрытые, публичных сеттеров у части из них нет —
+            // поэтому через SerializedObject, а не через свойства.
+            SetInt(so, "m_MSAA", economy ? 1 : 2);
+            SetFloat(so, "m_RenderScale", economy ? 0.8f : 1.0f);
+            SetBool(so, "m_SoftShadowsSupported", !economy);
+            SetInt(so, "m_ShadowCascadeCount", economy ? 1 : 2);
+            SetInt(so, "m_MainLightShadowmapResolution", economy ? 1024 : 2048);
+            SetFloat(so, "m_ShadowDistance", economy ? 50f : 65f);
+
+            so.ApplyModifiedProperties();
+            EditorUtility.SetDirty(asset);
+        }
+    }
+
+    private static void SetInt(SerializedObject so, string name, int value)
+    {
+        SerializedProperty p = so.FindProperty(name);
+        if (p != null) p.intValue = value;
+        else Debug.LogWarning("[RunnerLookBuilder] Нет поля " + name + " в ассете URP.");
+    }
+
+    private static void SetFloat(SerializedObject so, string name, float value)
+    {
+        SerializedProperty p = so.FindProperty(name);
+        if (p != null) p.floatValue = value;
+        else Debug.LogWarning("[RunnerLookBuilder] Нет поля " + name + " в ассете URP.");
+    }
+
+    private static void SetBool(SerializedObject so, string name, bool value)
+    {
+        SerializedProperty p = so.FindProperty(name);
+        if (p == null) { Debug.LogWarning("[RunnerLookBuilder] Нет поля " + name + " в ассете URP."); return; }
+
+        // В ассетах URP такие флаги лежат как bool, но у части версий — как int.
+        if (p.propertyType == SerializedPropertyType.Boolean) p.boolValue = value;
+        else p.intValue = value ? 1 : 0;
     }
 
     // ============================================================ постобработка
@@ -116,9 +221,12 @@ public static class RunnerLookBuilder
         // качественная фильтрация выключена. Порог 1.0 — светятся только
         // объекты с эмиссией ярче единицы, то есть монеты и разметка,
         // а не вся трасса.
+        // Порог 0.9, а не 1.0: на референсе светятся не только эмиссивные
+        // монеты, но и сами яркие поверхности — кремовые карнизы, разметка.
+        // Ниже 0.85 опускать нельзя: начнёт светиться вся трасса.
         var bloom = AddOverride<Bloom>(profile);
-        Override(bloom.threshold, 1.0f);
-        Override(bloom.intensity, 0.34f);
+        Override(bloom.threshold, 0.9f);
+        Override(bloom.intensity, 0.48f);
         Override(bloom.scatter, 0.42f);
         Override(bloom.clamp, 16f);
         Override(bloom.tint, new Color(1f, 0.93f, 0.82f));
@@ -131,17 +239,20 @@ public static class RunnerLookBuilder
         // Стоит копейки: это математика по экрану, без лишних проходов.
         var vignette = AddOverride<Vignette>(profile);
         Override(vignette.color, new Color(0.07f, 0.09f, 0.13f));
-        Override(vignette.intensity, 0.07f);
-        Override(vignette.smoothness, 0.30f);
+        Override(vignette.intensity, 0.20f);
+        Override(vignette.smoothness, 0.35f);
         Override(vignette.rounded, false);
 
         // --- Цветокоррекция ---
         // Всё, что ниже, запекается в одну таблицу цветов (LUT) один раз
         // за кадр. Поэтому добавить сюда ещё эффектов почти бесплатно.
         var colorAdjustments = AddOverride<ColorAdjustments>(profile);
-        Override(colorAdjustments.postExposure, 0.12f);
-        Override(colorAdjustments.contrast, 5f);
-        Override(colorAdjustments.saturation, 9f);
+        // Контраст и насыщенность подняты под референс: там цвета звонкие,
+        // а тени тёмные. Экспозиция при этом опущена — иначе поднятый
+        // контраст выбивает светлые места в белое.
+        Override(colorAdjustments.postExposure, 0.04f);
+        Override(colorAdjustments.contrast, 11f);
+        Override(colorAdjustments.saturation, 16f);
         Override(colorAdjustments.colorFilter, new Color(1f, 0.99f, 0.95f));
 
         // Тёплый баланс белого: закат должен читаться как закат.
@@ -271,7 +382,7 @@ public static class RunnerLookBuilder
             RenderSettings.skybox = sky;
             RenderSettings.ambientMode = AmbientMode.Flat;
             RenderSettings.ambientLight = new Color(0.72f, 0.78f, 0.80f);
-            RenderSettings.ambientIntensity = 1.05f;
+            RenderSettings.ambientIntensity = AmbientIntensity;
             EditorUtility.SetDirty(sky);
             return;
         }
@@ -300,7 +411,7 @@ public static class RunnerLookBuilder
         // Окружающий свет берём из неба: бесплатно и автоматически
         // согласовано с его цветом.
         RenderSettings.ambientMode = AmbientMode.Skybox;
-        RenderSettings.ambientIntensity = 1.05f;
+        RenderSettings.ambientIntensity = AmbientIntensity;
     }
 
     // ================================================================= туман
@@ -341,7 +452,11 @@ public static class RunnerLookBuilder
         sun.color = new Color(1f, 0.91f, 0.76f);
         sun.intensity = 1.42f;
         sun.shadows = LightShadows.Soft;
-        sun.shadowStrength = 0.55f;
+
+        // 0.55 давало полупрозрачные тени — предметы висели над землёй,
+        // а не стояли на ней. 0.78 — тени тёмные, но не чёрные: остаток
+        // засвечивает рассеянный свет неба, как на референсе.
+        sun.shadowStrength = 0.78f;
 
         EditorUtility.SetDirty(sun);
 
