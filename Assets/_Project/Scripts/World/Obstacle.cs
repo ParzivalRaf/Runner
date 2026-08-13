@@ -89,7 +89,9 @@ public class Obstacle : MonoBehaviour
         // The authored Campus Rush gate is built at the low-beam height.
         // Scale the complete silhouette so the visual always matches the
         // gameplay collider for both generated variants.
-        Transform authoredGate = transform.Find("SchoolDetails/CR_SlideGate");
+        // Имя — роль, а не файл: модель ворот зависит от активного набора
+        // (см. CampusRushArt.cs), а называется всегда одинаково.
+        Transform authoredGate = transform.Find("SchoolDetails/" + ArtRole.ObstacleSlide);
         if (authoredGate != null)
         {
             float visualScale = beamY / 1.76f;

@@ -30,14 +30,14 @@ public enum ArtSet
     /// <summary>Текущие модели проекта: базовый набор + HeroKit.</summary>
     Original,
 
-    /// <summary>~/Desktop/Unity_Runner_Asset_Kit/Premium_Campus_City — кампус, кирпич, часовая башня.</summary>
-    Premium,
+    /// <summary>ChatGPT, набор Premium_Campus_City: кампус, кирпич, часовая башня.</summary>
+    GptPremium,
 
-    /// <summary>~/Desktop/Unity_Runner_Asset_Kit/FBX — метро-раннер, рельсы, два поезда.</summary>
-    KitBase,
+    /// <summary>ChatGPT, базовый набор: метро-раннер, рельсы, два поезда.</summary>
+    GptBase,
 
-    /// <summary>~/Desktop/unity_runner_assest_kit_claude — процедурный набор, сконвертированный в OBJ.</summary>
-    Sketch,
+    /// <summary>Claude: процедурный набор, собранный кодом и сконвертированный в OBJ.</summary>
+    Claude,
 }
 
 /// <summary>
@@ -119,7 +119,7 @@ public static class CampusRushModels
     private static readonly Dictionary<ArtSet, HashSet<ArtRole>> SetCoverage = new()
     {
         {
-            ArtSet.Premium, new HashSet<ArtRole>
+            ArtSet.GptPremium, new HashSet<ArtRole>
             {
                 ArtRole.Train, ArtRole.Ramp, ArtRole.ObstacleBlock, ArtRole.ObstacleJump,
                 ArtRole.BuildingA, ArtRole.BuildingB, ArtRole.ClockTower,
@@ -127,14 +127,14 @@ public static class CampusRushModels
             }
         },
         {
-            ArtSet.KitBase, new HashSet<ArtRole>
+            ArtSet.GptBase, new HashSet<ArtRole>
             {
                 ArtRole.Train, ArtRole.Ramp, ArtRole.ObstacleBlock, ArtRole.ObstacleJump,
                 ArtRole.ObstacleSlide, ArtRole.Tree, ArtRole.Bench, ArtRole.Lamp,
             }
         },
         {
-            ArtSet.Sketch, new HashSet<ArtRole>
+            ArtSet.Claude, new HashSet<ArtRole>
             {
                 ArtRole.Train, ArtRole.Ramp, ArtRole.ObstacleBlock, ArtRole.ObstacleJump,
                 ArtRole.BuildingA, ArtRole.BuildingB, ArtRole.ClockTower,

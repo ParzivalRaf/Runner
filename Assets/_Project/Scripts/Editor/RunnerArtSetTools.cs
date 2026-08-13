@@ -36,8 +36,14 @@ public static class RunnerArtSetTools
     private const string SelectionFile = "Assets/_Project/Scripts/World/ArtSetSelection.cs";
     private const string FullSceneMenu = "Tools/Runner/M6+M7 — полная игра: интерфейс, бонусы, магазин";
 
-    /// <summary>По какому измерению подгонять модель под нынешнюю.</summary>
+    /// <summary>По какому измерению подгонять, когда масштаб равномерный.</summary>
     private enum FitAxis { Width, Height, Depth }
+
+    /// <summary>
+    /// Stretch — тянуть по всем трём осям под габариты коллайдера.
+    /// Uniform — сохранить пропорции, подогнать одно измерение.
+    /// </summary>
+    private enum FitMode { Uniform, Stretch }
 
     private readonly struct Entry
     {
@@ -45,13 +51,23 @@ public static class RunnerArtSetTools
         public readonly string File;        // без расширения, внутри папки набора
         public readonly string Anchor;      // имя узла в файле; null — весь файл
         public readonly Vector3 Target;     // габариты нынешней модели, метры
-        public readonly FitAxis Fit;
+        public readonly FitAxis Fit;        // ось подгонки при Uniform
+        public readonly FitMode Mode;
+        public readonly float YRotation;    // разворот вокруг вертикали, градусы
 
-        public Entry(ArtRole role, string file, string anchor, Vector3 target, FitAxis fit)
+        public Entry(ArtRole role, string file, string anchor, Vector3 target,
+                     FitAxis fit, FitMode mode = FitMode.Uniform, float yRotation = 0f)
         {
-            Role = role; File = file; Anchor = anchor; Target = target; Fit = fit;
+            Role = role; File = file; Anchor = anchor; Target = target;
+            Fit = fit; Mode = mode; YRotation = yRotation;
         }
     }
+
+    private static float Safe(float target, float current) =>
+        current > 0.0001f ? target / current : 1f;
+
+    private static float Pick(Vector3 v, FitAxis axis) =>
+        axis switch { FitAxis.Width => v.x, FitAxis.Height => v.y, _ => v.z };
 
     // Габариты нынешних моделей (замерены по вершинам FBX с учётом импортного
     // поворота, см. CampusRushArt.cs). Под них подгоняется всё остальное.
@@ -71,12 +87,13 @@ public static class RunnerArtSetTools
     private static readonly Dictionary<ArtSet, Entry[]> Recipes = new()
     {
         {
-            ArtSet.Premium, new[]
+            ArtSet.GptPremium, new[]
             {
-                new Entry(ArtRole.Train,         "Premium_03_Trains",        "Premium_Train_BlueGold",     SizeTrain,     FitAxis.Width),
-                new Entry(ArtRole.Ramp,          "Premium_02_Gameplay_Props","Premium_Obstacle_Ramp",      SizeRamp,      FitAxis.Width),
-                new Entry(ArtRole.ObstacleBlock, "Premium_02_Gameplay_Props","Premium_Cabinet_Left",       SizeBlock,     FitAxis.Height),
-                new Entry(ArtRole.ObstacleJump,  "Premium_02_Gameplay_Props","Premium_Obstacle_Barricade", SizeJump,      FitAxis.Width),
+                new Entry(ArtRole.Train,         "Premium_03_Trains",        "Premium_Train_BlueGold",     SizeTrain,     FitAxis.Width,  FitMode.Stretch),
+                // Замерено: этот пандус поднимается к +Z, эталонный — к -Z.
+                new Entry(ArtRole.Ramp,          "Premium_02_Gameplay_Props","Premium_Obstacle_Ramp",      SizeRamp,      FitAxis.Width,  FitMode.Stretch, 180f),
+                new Entry(ArtRole.ObstacleBlock, "Premium_02_Gameplay_Props","Premium_Cabinet_Left",       SizeBlock,     FitAxis.Height, FitMode.Stretch),
+                new Entry(ArtRole.ObstacleJump,  "Premium_02_Gameplay_Props","Premium_Obstacle_Barricade", SizeJump,      FitAxis.Width,  FitMode.Stretch),
                 new Entry(ArtRole.Banner,        "Premium_02_Gameplay_Props","Premium_Campus_Banner",      SizeBanner,    FitAxis.Height),
                 new Entry(ArtRole.BuildingA,     "Premium_04_Campus_City",   "Campus_Left_Foreground",     SizeBuildingA, FitAxis.Height),
                 new Entry(ArtRole.BuildingB,     "Premium_04_Campus_City",   "Campus_Right_Mid",           SizeBuildingB, FitAxis.Height),
@@ -85,25 +102,25 @@ public static class RunnerArtSetTools
             }
         },
         {
-            ArtSet.KitBase, new[]
+            ArtSet.GptBase, new[]
             {
-                new Entry(ArtRole.Train,         "02_TRAINS",       "Train_Metro_Blue",   SizeTrain, FitAxis.Width),
-                new Entry(ArtRole.Ramp,          "03_OBSTACLES",    "Obstacle_JumpRamp",  SizeRamp,  FitAxis.Width),
-                new Entry(ArtRole.ObstacleBlock, "03_OBSTACLES",    "Obstacle_Crate",     SizeBlock, FitAxis.Height),
-                new Entry(ArtRole.ObstacleJump,  "03_OBSTACLES",    "Obstacle_Barricade", SizeJump,  FitAxis.Width),
-                new Entry(ArtRole.ObstacleSlide, "03_OBSTACLES",    "Obstacle_LowGate",   SizeSlide, FitAxis.Width),
+                new Entry(ArtRole.Train,         "02_TRAINS",       "Train_Metro_Blue",   SizeTrain, FitAxis.Width,  FitMode.Stretch),
+                new Entry(ArtRole.Ramp,          "03_OBSTACLES",    "Obstacle_JumpRamp",  SizeRamp,  FitAxis.Width,  FitMode.Stretch),
+                new Entry(ArtRole.ObstacleBlock, "03_OBSTACLES",    "Obstacle_Crate",     SizeBlock, FitAxis.Height, FitMode.Stretch),
+                new Entry(ArtRole.ObstacleJump,  "03_OBSTACLES",    "Obstacle_Barricade", SizeJump,  FitAxis.Width,  FitMode.Stretch),
+                new Entry(ArtRole.ObstacleSlide, "03_OBSTACLES",    "Obstacle_LowGate",   SizeSlide, FitAxis.Width,  FitMode.Stretch),
                 new Entry(ArtRole.Tree,          "05_STREET_PROPS", "Tree_Crown",         SizeTree,  FitAxis.Height),
                 new Entry(ArtRole.Bench,         "05_STREET_PROPS", "Station_Bench_Seat", SizeBench, FitAxis.Width),
                 new Entry(ArtRole.Lamp,          "05_STREET_PROPS", "StreetLamp_L_Pole",  SizeLamp,  FitAxis.Height),
             }
         },
         {
-            ArtSet.Sketch, new[]
+            ArtSet.Claude, new[]
             {
-                new Entry(ArtRole.Train,         "train",      null, SizeTrain,     FitAxis.Width),
-                new Entry(ArtRole.Ramp,          "ramp",       null, SizeRamp,      FitAxis.Width),
-                new Entry(ArtRole.ObstacleBlock, "lockers",    null, SizeBlock,     FitAxis.Height),
-                new Entry(ArtRole.ObstacleJump,  "barrier",    null, SizeJump,      FitAxis.Width),
+                new Entry(ArtRole.Train,         "train",      null, SizeTrain,     FitAxis.Width,  FitMode.Stretch),
+                new Entry(ArtRole.Ramp,          "ramp",       null, SizeRamp,      FitAxis.Width,  FitMode.Stretch),
+                new Entry(ArtRole.ObstacleBlock, "lockers",    null, SizeBlock,     FitAxis.Height, FitMode.Stretch),
+                new Entry(ArtRole.ObstacleJump,  "barrier",    null, SizeJump,      FitAxis.Width,  FitMode.Stretch),
                 new Entry(ArtRole.BuildingA,     "brownstone", null, SizeBuildingA, FitAxis.Height),
                 new Entry(ArtRole.BuildingB,     "tower",      null, SizeBuildingB, FitAxis.Height),
                 new Entry(ArtRole.ClockTower,    "clocktower", null, SizeTower,     FitAxis.Height),
@@ -118,23 +135,23 @@ public static class RunnerArtSetTools
     [MenuItem("Tools/Runner/Набор моделей/Свой (Original)")]
     private static void UseOriginal() => Switch(ArtSet.Original);
 
-    [MenuItem("Tools/Runner/Набор моделей/Premium Campus City")]
-    private static void UsePremium() => Switch(ArtSet.Premium);
+    [MenuItem("Tools/Runner/Набор моделей/ChatGPT — Premium Campus")]
+    private static void UseGptPremium() => Switch(ArtSet.GptPremium);
 
-    [MenuItem("Tools/Runner/Набор моделей/Базовый кит (метро)")]
-    private static void UseKitBase() => Switch(ArtSet.KitBase);
+    [MenuItem("Tools/Runner/Набор моделей/ChatGPT — базовый (метро)")]
+    private static void UseGptBase() => Switch(ArtSet.GptBase);
 
-    [MenuItem("Tools/Runner/Набор моделей/Процедурный (claude)")]
-    private static void UseSketch() => Switch(ArtSet.Sketch);
+    [MenuItem("Tools/Runner/Набор моделей/Claude — процедурный")]
+    private static void UseClaude() => Switch(ArtSet.Claude);
 
     [MenuItem("Tools/Runner/Набор моделей/Свой (Original)", true)]
     private static bool ValidateOriginal() => Check(ArtSet.Original);
-    [MenuItem("Tools/Runner/Набор моделей/Premium Campus City", true)]
-    private static bool ValidatePremium() => Check(ArtSet.Premium);
-    [MenuItem("Tools/Runner/Набор моделей/Базовый кит (метро)", true)]
-    private static bool ValidateKitBase() => Check(ArtSet.KitBase);
-    [MenuItem("Tools/Runner/Набор моделей/Процедурный (claude)", true)]
-    private static bool ValidateSketch() => Check(ArtSet.Sketch);
+    [MenuItem("Tools/Runner/Набор моделей/ChatGPT — Premium Campus", true)]
+    private static bool ValidateGptPremium() => Check(ArtSet.GptPremium);
+    [MenuItem("Tools/Runner/Набор моделей/ChatGPT — базовый (метро)", true)]
+    private static bool ValidateGptBase() => Check(ArtSet.GptBase);
+    [MenuItem("Tools/Runner/Набор моделей/Claude — процедурный", true)]
+    private static bool ValidateClaude() => Check(ArtSet.Claude);
 
     private static bool Check(ArtSet set)
     {
@@ -145,9 +162,9 @@ public static class RunnerArtSetTools
     private static string MenuPath(ArtSet set) => set switch
     {
         ArtSet.Original => "Tools/Runner/Набор моделей/Свой (Original)",
-        ArtSet.Premium => "Tools/Runner/Набор моделей/Premium Campus City",
-        ArtSet.KitBase => "Tools/Runner/Набор моделей/Базовый кит (метро)",
-        _ => "Tools/Runner/Набор моделей/Процедурный (claude)",
+        ArtSet.GptPremium => "Tools/Runner/Набор моделей/ChatGPT — Premium Campus",
+        ArtSet.GptBase => "Tools/Runner/Набор моделей/ChatGPT — базовый (метро)",
+        _ => "Tools/Runner/Набор моделей/Claude — процедурный",
     };
 
     private static void Switch(ArtSet set)
@@ -270,9 +287,9 @@ public static class RunnerArtSetTools
 
     private static string FolderFor(ArtSet set) => set switch
     {
-        ArtSet.Premium => "Premium",
-        ArtSet.KitBase => "Base",
-        ArtSet.Sketch => "Sketch",
+        ArtSet.GptPremium => "Premium",
+        ArtSet.GptBase => "Base",
+        ArtSet.Claude => "Sketch",
         _ => "Original",
     };
 
@@ -300,11 +317,31 @@ public static class RunnerArtSetTools
                 return false;
             }
 
+            // ПОЧЕМУ ДВА УРОВНЯ, А НЕ ОДИН.
+            // Первый заход клал масштаб и посадку прямо в корень префаба —
+            // и игра их стирала: CampusBackgroundLayers ставит корню свой
+            // localScale, SchoolChunkVisuals — свой localPosition. Здание,
+            // ужатое до 0.40, получало 1.45 и вырастало в стену на пол-экрана;
+            // модели с внутренним смещением уезжали вбок. Поэтому корень
+            // остаётся чистым (позиция 0, поворот 0, масштаб 1), а вся
+            // подгонка живёт во вложенном узле Fit, до которого игра
+            // не дотягивается.
             container = new GameObject(entry.Role.ToString());
             container.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
 
+            var fit = new GameObject("Fit").transform;
+            fit.SetParent(container.transform, false);
+
             foreach (Transform part in PartsFor(spawned.transform, anchor))
-                part.SetParent(container.transform, true);
+                part.SetParent(fit, true);
+
+            // Разворот вокруг вертикали для моделей, собранных «задом наперёд».
+            // Пандус Premium поднимается к +Z, а игра ждёт подъём к -Z:
+            // без разворота игрок вбегает в отвесную стенку.
+            // Осторожно: сюда годится только 180°. На 90° местами меняются
+            // оси, и растяжение ниже начнёт тянуть модель не туда.
+            if (Mathf.Abs(entry.YRotation) > 0.01f)
+                fit.localRotation = Quaternion.Euler(0f, entry.YRotation, 0f);
 
             if (!TryBounds(container, out Bounds bounds))
             {
@@ -312,27 +349,22 @@ public static class RunnerArtSetTools
                 return false;
             }
 
-            // Масштаб — по одному измерению, равномерный: непропорциональное
-            // сжатие ломает вид сильнее, чем несовпадение длины.
-            float current = entry.Fit switch
-            {
-                FitAxis.Width => bounds.size.x,
-                FitAxis.Height => bounds.size.y,
-                _ => bounds.size.z,
-            };
-            float target = entry.Fit switch
-            {
-                FitAxis.Width => entry.Target.x,
-                FitAxis.Height => entry.Target.y,
-                _ => entry.Target.z,
-            };
-            float scale = current > 0.0001f ? target / current : 1f;
-            container.transform.localScale = Vector3.one * scale;
+            Vector3 size = bounds.size;
+            Vector3 scale = entry.Mode == FitMode.Stretch
+                // Игровые модели тянем по всем трём осям: игрок врезается
+                // в коллайдер, а видит модель. Разъехались — игра врёт.
+                ? new Vector3(Safe(entry.Target.x, size.x), Safe(entry.Target.y, size.y),
+                              Safe(entry.Target.z, size.z))
+                // Декорации — равномерно: искажённые пропорции заметнее,
+                // чем то, что дом не в точности той же глубины.
+                : Vector3.one * Safe(Pick(entry.Target, entry.Fit), Pick(size, entry.Fit));
+
+            fit.localScale = Vector3.Scale(fit.localScale, scale);
 
             // Посадка: центр по X/Z в нуле, низ модели на нуле. Игра ставит
             // модели в точку на земле и ждёт именно такой привязки.
             TryBounds(container, out bounds);
-            container.transform.position -= new Vector3(bounds.center.x, bounds.min.y, bounds.center.z);
+            fit.position -= new Vector3(bounds.center.x, bounds.min.y, bounds.center.z);
 
             foreach (Collider collider in container.GetComponentsInChildren<Collider>(true))
                 UnityEngine.Object.DestroyImmediate(collider);
@@ -342,7 +374,8 @@ public static class RunnerArtSetTools
 
             TryBounds(container, out bounds);
             Debug.Log($"[Наборы] {set}/{entry.Role}: {bounds.size.x:F2} × {bounds.size.y:F2} × " +
-                      $"{bounds.size.z:F2} м (было {current:F2} по {entry.Fit}, масштаб {scale:F3})");
+                      $"{bounds.size.z:F2} м, надо {entry.Target.x:F2} × {entry.Target.y:F2} × " +
+                      $"{entry.Target.z:F2} ({entry.Mode}, было {size.x:F2} × {size.y:F2} × {size.z:F2})");
             return true;
         }
         finally
