@@ -73,6 +73,7 @@ public class GameFeel : MonoBehaviour
         Shake(crashShake);
         PunchFov(-1.2f);          // внутрь: кадр сжимается, как от удара под дых
         HitStop(crashHitStop);
+        MobileHaptics.Crash();
 
         // Держим долго: сразу после удара камера наезжает на лицо,
         // и голова должна оставаться повёрнутой всё это время.
@@ -92,6 +93,7 @@ public class GameFeel : MonoBehaviour
     {
         Shake(powerUpShake);
         PunchFov(1f);             // наружу: кадр распахивается
+        MobileHaptics.Light();
     }
 
     /// <summary>Приземление после прыжка. Слабое, но копится в ощущение веса.</summary>

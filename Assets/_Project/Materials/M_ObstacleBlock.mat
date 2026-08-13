@@ -11,8 +11,7 @@ Material:
   m_Shader: {fileID: 4800000, guid: 933532a4fcc9baf4fa0491de14d08ed7, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
-  m_ValidKeywords:
-  - _EMISSION
+  m_ValidKeywords: []
   m_InvalidKeywords: []
   m_LightmapFlags: 0
   m_EnableInstancingVariants: 1
@@ -107,7 +106,7 @@ Material:
     - _Parallax: 0.005
     - _QueueOffset: 0
     - _ReceiveShadows: 1
-    - _Smoothness: 0.25
+    - _Smoothness: 0.28
     - _SmoothnessTextureChannel: 0
     - _SpecularHighlights: 1
     - _SrcBlend: 1
@@ -117,9 +116,9 @@ Material:
     - _XRMotionVectorsPass: 1
     - _ZWrite: 1
     m_Colors:
-    - _BaseColor: {r: 0.88, g: 0.2, b: 0.26, a: 1}
-    - _Color: {r: 0.88, g: 0.19999996, b: 0.25999996, a: 1}
-    - _EmissionColor: {r: 1.232, g: 0.28, b: 0.364, a: 1.4}
+    - _BaseColor: {r: 0.72, g: 0.22, b: 0.12, a: 1}
+    - _Color: {r: 0.72, g: 0.21999997, b: 0.11999995, a: 1}
+    - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

@@ -31,10 +31,25 @@ public class Chunk : MonoBehaviour
     /// <summary>Из какого префаба сделан этот экземпляр — нужно, чтобы вернуть его в свой пул.</summary>
     [System.NonSerialized] public Chunk SourcePrefab;
 
+    private void Awake()
+    {
+        if (!Application.isPlaying) return;
+
+        // Пул создаёт копии чанков ещё до начала забега. Собираем школьные
+        // модели именно в этот момент, чтобы первое появление библиотеки или
+        // спортзала не дало микрофриз уже во время игры.
+        SchoolChunkVisuals.EnsureBuilt(this);
+    }
+
     /// <summary>Вызывается каждый раз, когда чанк достают из пула.</summary>
     public virtual void OnSpawned()
     {
-        // На M3 здесь будет расстановка препятствий по spawnPoints.
+        if (!Application.isPlaying) return;
+
+        // Декорации создаются один раз на экземпляр чанка и потом ездят
+        // вместе с ним через пул. Это даёт полноценное окружение без
+        // Instantiate/Destroy в каждой новой секции трассы.
+        SchoolChunkVisuals.EnsureBuilt(this);
     }
 
     /// <summary>Вызывается перед возвратом чанка в пул.</summary>

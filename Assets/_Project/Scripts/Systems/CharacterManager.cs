@@ -225,6 +225,8 @@ public class CharacterManager : MonoBehaviour
             model.transform.localPosition = Vector3.zero;
             model.transform.localRotation = Quaternion.identity;
 
+            DisableRootMotion(model);
+
             // Модель есть — прячем капсулу-заглушку, но сам объект Visual
             // оставляем: PlayerController сжимает именно его при подкате.
             SetPlaceholderVisible(false);
@@ -234,6 +236,16 @@ public class CharacterManager : MonoBehaviour
             SetPlaceholderVisible(true);
             TintPlaceholder(tint);
         }
+    }
+
+    private void LateUpdate()
+    {
+        // PlayerController сжимает Visual вместе с коллайдером для подката.
+        // Заглушке-капсуле это нужно, но реальная модель с Animator не должна
+        // становиться плоской: иначе футбольный tackle почти не виден. Каждый
+        // кадр компенсируем именно родителя ModelRoot; сам клип продолжает
+        // свободно двигать кости внутри него.
+        if (_modelRoot != null) NeutralizeVisualTransform(_modelRoot);
     }
 
     private void EnsureModelRoot()
@@ -265,10 +277,9 @@ public class CharacterManager : MonoBehaviour
     /// (пивот на полу, рост 2) оказался бы поднят на метр над дорогой
     /// и сжат с боков — а причина была бы совершенно неочевидна.
     ///
-    /// Компенсация пропорциональная, поэтому подкат её не ломает:
-    /// при подкате Visual сжимается и опускается на один и тот же
-    /// коэффициент, так что ноги модели остаются на полу, а сама она
-    /// приседает вместе с заглушкой — как и должна.
+    /// Компенсация выполняется и во время подката: у капсулы-заглушки меняется
+    /// форма, но анимируемая модель остаётся нормального масштаба и показывает
+    /// настоящую позу подката, а не сплющенную копию бега.
     /// </summary>
     private void NeutralizeVisualTransform(Transform modelRoot)
     {
@@ -286,6 +297,27 @@ public class CharacterManager : MonoBehaviour
             Mathf.Approximately(scale.x, 0f) ? 0f : -offset.x / scale.x,
             Mathf.Approximately(scale.y, 0f) ? 0f : -offset.y / scale.y,
             Mathf.Approximately(scale.z, 0f) ? 0f : -offset.z / scale.z);
+    }
+
+    /// <summary>
+    /// Выключает перенос движения из анимации в положение объекта.
+    ///
+    /// Клипы бега из Mixamo содержат собственное перемещение вперёд: они
+    /// рассчитаны на то, что персонажа двигает сама анимация. У нас игрока
+    /// двигает PlayerController, а трасса едет навстречу. Если оставить обе
+    /// силы, они складываются: модель уползает вперёд внутри объекта Player
+    /// и через сотню метров оказывается далеко впереди камеры. Со стороны
+    /// это выглядит так, будто персонаж стал прозрачным — на самом деле он
+    /// просто убежал за край кадра.
+    ///
+    /// Ставим здесь, а не в префабе: префабы собираются разными путями
+    /// (сборщиком, вручную, из FBX), и настройка на любом из них может
+    /// потеряться. Здесь она гарантирована для всех.
+    /// </summary>
+    private static void DisableRootMotion(GameObject model)
+    {
+        foreach (Animator animator in model.GetComponentsInChildren<Animator>(true))
+            animator.applyRootMotion = false;
     }
 
     private void ClearModelRoot()

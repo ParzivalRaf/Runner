@@ -41,6 +41,7 @@ public class ObjectPool
     public GameObject Get()
     {
         GameObject instance = _available.Count > 0 ? _available.Pop() : CreateNew();
+
         instance.SetActive(true);
         return instance;
     }

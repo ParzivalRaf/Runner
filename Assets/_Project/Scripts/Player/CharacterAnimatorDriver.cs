@@ -21,13 +21,19 @@ public class CharacterAnimatorDriver : MonoBehaviour
     [SerializeField] private float minPlaybackSpeed = 0.75f;
     [SerializeField] private float maxPlaybackSpeed = 1.6f;
 
+    [Tooltip("Скорость одноразовой анимации подката. Выше бега, чтобы tackle " +
+             "успевал прочитаться за короткий игровой подкат.")]
+    [SerializeField] private float slidePlaybackSpeed = 1.75f;
+
     private PlayerController _player;
     private bool _dead;
+    private bool _hasSlidingParameter;
 
     private void Awake()
     {
         if (animator == null) animator = GetComponentInChildren<Animator>();
         _player = GetComponentInParent<PlayerController>();
+        _hasSlidingParameter = HasBoolParameter("Sliding");
     }
 
     private void OnEnable()
@@ -60,6 +66,10 @@ public class CharacterAnimatorDriver : MonoBehaviour
 
         animator.SetBool("Grounded", _player.IsGrounded);
         animator.SetBool("Dead", _dead);
+        // Старые контроллеры можно открыть и обновить отдельным пунктом меню.
+        // Пока параметра нет, не шлём его в Animator: Unity иначе пишет
+        // предупреждение каждый кадр.
+        if (_hasSlidingParameter) animator.SetBool("Sliding", !_dead && _player.IsSliding);
 
         // После смерти анимация падения должна доиграть в нормальном темпе,
         // а не в темпе последней скорости забега.
@@ -69,7 +79,29 @@ public class CharacterAnimatorDriver : MonoBehaviour
             return;
         }
 
+        // Футбольный tackle длиннее обычного шага. Игровой подкат намеренно
+        // короткий, поэтому не привязываем его к текущей скорости бега —
+        // иначе переход успевал вернуться в Run до видимой позы подката.
+        if (_player.IsSliding)
+        {
+            animator.speed = slidePlaybackSpeed;
+            return;
+        }
+
         float ratio = _player.CurrentSpeed / Mathf.Max(0.1f, referenceSpeed);
         animator.speed = Mathf.Clamp(ratio, minPlaybackSpeed, maxPlaybackSpeed);
+    }
+
+    private bool HasBoolParameter(string name)
+    {
+        if (animator == null) return false;
+
+        foreach (AnimatorControllerParameter parameter in animator.parameters)
+        {
+            if (parameter.name == name && parameter.type == AnimatorControllerParameterType.Bool)
+                return true;
+        }
+
+        return false;
     }
 }

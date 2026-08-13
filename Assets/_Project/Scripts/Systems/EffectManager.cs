@@ -22,7 +22,7 @@ public class EffectManager : MonoBehaviour
 
     [Header("Пул")]
     [Tooltip("Сколько копий каждого эффекта создать заранее.")]
-    [SerializeField] private int prewarmCount = 6;
+    [SerializeField] private int prewarmCount = 16;
 
     private struct ActiveEffect
     {

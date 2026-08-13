@@ -33,6 +33,84 @@ public class Obstacle : MonoBehaviour
 
     public Kind ObstacleKind => kind;
 
+    private void Awake()
+    {
+        if (!Application.isPlaying) return;
+
+        // Детали создаются при предварительном наполнении пулов и остаются
+        // у объекта до конца сессии. Игровой коллайдер на корне не трогаем.
+        SchoolObstacleVisuals.EnsureBuilt(this);
+    }
+
+    /// <summary>
+    /// Вариант балки сверху. У низкой балки есть два честных решения —
+    /// прыгнуть или проехать под ней. Высокая стоит выше вершины обычного
+    /// прыжка, поэтому остаётся только подкат.
+    /// </summary>
+    public enum SlideVariant
+    {
+        JumpOrSlide,
+        SlideOnly
+    }
+
+    public SlideVariant CurrentSlideVariant { get; private set; } = SlideVariant.JumpOrSlide;
+
+    /// <summary>
+    /// Настраивает один и тот же пуловый префаб на низкую или высокую балку.
+    /// Так не нужно плодить почти одинаковые префабы и отдельные пулы.
+    /// Вызывается каждый раз при выдаче объекта из пула, поэтому вариант не
+    /// «протекает» в следующий чанк при переиспользовании.
+    /// </summary>
+    public void ConfigureSlideVariant(SlideVariant variant)
+    {
+        if (kind != Kind.SlideUnder) return;
+
+        CurrentSlideVariant = variant;
+
+        // Низкая балка: под ней проходит коллайдер подката (до y=0.9),
+        // а обычный прыжок перепрыгивает её верх (y=1.8).
+        // Высокая: низ всё ещё выше подката, но верх y=2.55 — выше ног в
+        // вершине обычного прыжка y=2.2. Значит прыгнуть уже нельзя.
+        float beamY = variant == SlideVariant.SlideOnly ? 2.175f : 1.45f;
+        float beamHeight = variant == SlideVariant.SlideOnly ? 0.75f : 0.7f;
+        float postHeight = variant == SlideVariant.SlideOnly ? 2.55f : 1.8f;
+
+        BoxCollider trigger = GetComponent<BoxCollider>();
+        if (trigger != null)
+        {
+            trigger.center = new Vector3(0f, beamY, 0f);
+            trigger.size = new Vector3(1.7f, beamHeight, 0.7f);
+        }
+
+        SetBoxTransform("Visual", beamY, beamHeight);
+        SetBoxTransform("Post_-1", postHeight * 0.5f, postHeight);
+        SetBoxTransform("Post_1", postHeight * 0.5f, postHeight);
+
+        // The authored Campus Rush gate is built at the low-beam height.
+        // Scale the complete silhouette so the visual always matches the
+        // gameplay collider for both generated variants.
+        Transform authoredGate = transform.Find("SchoolDetails/CR_SlideGate");
+        if (authoredGate != null)
+        {
+            float visualScale = beamY / 1.76f;
+            authoredGate.localScale = new Vector3(1f, visualScale, 1f);
+        }
+    }
+
+    private void SetBoxTransform(string childName, float y, float height)
+    {
+        Transform child = transform.Find(childName);
+        if (child == null) return;
+
+        Vector3 position = child.localPosition;
+        position.y = y;
+        child.localPosition = position;
+
+        Vector3 scale = child.localScale;
+        scale.y = height;
+        child.localScale = scale;
+    }
+
     /// <summary>
     /// Размеры поезда. Лежат здесь, потому что их должны знать двое: сборщик
     /// сцены, который строит префаб, и генератор, который решает, где поезд

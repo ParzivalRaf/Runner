@@ -41,11 +41,11 @@ public class CameraFollow : MonoBehaviour
     [SerializeField] private float groundedVerticalSmoothTime = 0.05f;
 
     [Header("Field of View")]
-    // Диапазон расширен с 60–68 до 58–74. Раньше разница почти не читалась:
+    // Диапазон расширен с 60–68 до 60–72. Раньше разница почти не читалась:
     // восемь градусов на весь разгон — это ничто. Растянутый FOV на скорости —
     // самый дешёвый способ дать ощущение скорости, дешевле любых партиклов.
     [SerializeField] private float baseFov = 58f;
-    [SerializeField] private float maxFov = 74f;
+    [SerializeField] private float maxFov = 72f;
 
     [Tooltip("Скорость игрока, при которой FOV ещё минимальный.")]
     [SerializeField] private float fovMinAtSpeed = 14f;

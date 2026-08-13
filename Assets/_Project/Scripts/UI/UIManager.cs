@@ -39,6 +39,11 @@ public class UIManager : MonoBehaviour
     [Header("HUD")]
     [SerializeField] private Text hudDistanceText;
     [SerializeField] private Text hudCoinsText;
+    [Tooltip("Короткая подсказка только для поставленного начала первого забега.")]
+    [SerializeField] private Text openingGuideText;
+
+    [Tooltip("Индикатор щита Директора. Пустой и скрытый у остальных персонажей.")]
+    [SerializeField] private Text shieldText;
     [SerializeField] private Button pauseButton;
 
     [Tooltip("Корни полосок бонусов, по одному на PowerUpType.")]
@@ -79,7 +84,8 @@ public class UIManager : MonoBehaviour
 
     [Header("Персонажи")]
     [SerializeField] private Text charactersCoinsText;
-    [SerializeField] private Image charactersPortrait;
+    [SerializeField] private CharacterLobbyPreview characterLobby;
+    [SerializeField] private Text charactersStatusText;
     [SerializeField] private Text charactersNameText;
     [SerializeField] private Text charactersAbilityText;
     [SerializeField] private Text charactersPhraseText;
@@ -114,6 +120,7 @@ public class UIManager : MonoBehaviour
         Bind(gameOverRestartButton, OnRestartPressed);
         Bind(gameOverMenuButton, OnMenuPressed);
 
+        Bind(charactersButton, OpenCharacters);
         Bind(shopButton, OpenShop);
         Bind(shopCloseButton, CloseOverlays);
         Bind(settingsButton, OpenSettings);
@@ -127,7 +134,6 @@ public class UIManager : MonoBehaviour
             shopBuyButtons[i].onClick.AddListener(() => BuyUpgrade(index));
         }
 
-        Bind(charactersButton, OpenCharacters);
         Bind(charactersCloseButton, CloseOverlays);
         Bind(charactersPrevButton, ShowPreviousCharacter);
         Bind(charactersNextButton, ShowNextCharacter);
@@ -186,6 +192,8 @@ public class UIManager : MonoBehaviour
             hudCoinsText.text = score.CoinsThisRun.ToString();
 
         UpdatePowerUpBars();
+        UpdateOpeningGuide();
+        UpdateShieldIndicator();
     }
 
     // ------------------------------------------------------------ состояния
@@ -198,8 +206,19 @@ public class UIManager : MonoBehaviour
 
         if (state != GameState.Menu) CloseOverlays();
 
-        if (state == GameState.Menu) RefreshMenu();
-        if (state == GameState.Running) UpdatePowerUpBars();
+        if (state == GameState.Menu)
+        {
+            // Витрина нужна только на экране выбора. В главном меню она не
+            // тратит кадр впустую и не остаётся активной после забега.
+            if (characterLobby != null) characterLobby.SetVisible(false);
+            RefreshMenu();
+        }
+        if (state == GameState.Running)
+        {
+            UpdatePowerUpBars();
+            UpdateOpeningGuide();
+            UpdateShieldIndicator();
+        }
 
         // Экран проигрыша появляется не сразу.
         //
@@ -306,6 +325,51 @@ public class UIManager : MonoBehaviour
         }
     }
 
+    // -------------------------------------------------------- ясность забега
+
+    /// <summary>
+    /// Подсказки живут только в первой короткой постановочной последовательности.
+    /// Это не учебник с остановкой игры: текст просто подтверждает то, что
+    /// игрок уже видит впереди, и уходит прежде, чем начнётся настоящий раннер.
+    /// </summary>
+    private void UpdateOpeningGuide()
+    {
+        if (openingGuideText == null) return;
+
+        float distance = player != null ? player.Distance : 999f;
+        string message;
+
+        if (distance < 22f) message = "СОБИРАЙ МОНЕТЫ";
+        else if (distance < 52f) message = "ОБЪЕЗЖАЙ КРАСНОЕ";
+        else if (distance < 80f) message = "ПРЫГАЙ ЧЕРЕЗ ЖЁЛТОЕ";
+        else if (distance < 98f) message = "БЕРИ БОНУС";
+        else if (distance < 150f) message = "СЛЕДУЙ ЗА МОНЕТАМИ НА КРЫШУ";
+        else message = string.Empty;
+
+        bool visible = !string.IsNullOrEmpty(message);
+        if (openingGuideText.gameObject.activeSelf != visible)
+            openingGuideText.gameObject.SetActive(visible);
+
+        if (visible) openingGuideText.text = message;
+    }
+
+    /// <summary>
+    /// Спасение щитом должно быть понятным до удара. Иначе способность
+    /// Директора выглядит как случайный баг, а не как причина выбрать героя.
+    /// </summary>
+    private void UpdateShieldIndicator()
+    {
+        if (shieldText == null) return;
+
+        int charges = characters != null ? characters.ShieldCharges : 0;
+        bool visible = charges > 0;
+
+        if (shieldText.gameObject.activeSelf != visible)
+            shieldText.gameObject.SetActive(visible);
+
+        if (visible) shieldText.text = $"ЩИТ  ×{charges}";
+    }
+
     // -------------------------------------------------------------- магазин
 
     private void OpenShop()
@@ -316,6 +380,7 @@ public class UIManager : MonoBehaviour
         Show(shopPanel, true);
         Show(settingsPanel, false);
         Show(charactersPanel, false);
+        if (characterLobby != null) characterLobby.SetVisible(false);
         RefreshShop();
     }
 
@@ -366,13 +431,14 @@ public class UIManager : MonoBehaviour
         Show(shopPanel, false);
         Show(settingsPanel, false);
 
-        // Открываем карусель на том, кем сейчас бегаем, а не на первом.
+        // Открываем карусель на том, кем сейчас бежим, а не на первом герое.
         if (characters != null && characters.Database != null && characters.Selected != null)
         {
             int index = characters.Database.IndexOf(characters.Selected.Id);
             if (index >= 0) _characterIndex = index;
         }
 
+        if (characterLobby != null) characterLobby.SetVisible(true);
         RefreshCharacters();
     }
 
@@ -415,24 +481,35 @@ public class UIManager : MonoBehaviour
         {
             // Список пуст — не оставляем интерфейс в непонятном состоянии.
             if (charactersNameText != null) charactersNameText.text = "нет персонажей";
+            if (charactersStatusText != null) charactersStatusText.text = "СПИСОК ПУСТ";
             if (charactersAbilityText != null) charactersAbilityText.text = "";
             if (charactersPhraseText != null) charactersPhraseText.text = "";
             if (charactersActionButton != null) charactersActionButton.interactable = false;
             if (charactersActionLabel != null) charactersActionLabel.text = "—";
+            if (characterLobby != null) characterLobby.ShowCharacter(null, false);
             return;
         }
 
         bool unlocked = characters.IsUnlocked(character);
         bool isSelected = characters.Selected != null && characters.Selected.Id == character.Id;
 
-        if (charactersPortrait != null)
-            charactersPortrait.color = unlocked
-                ? character.Tint
-                // Закрытого показываем силуэтом: цвет виден, деталей нет.
-                : Color.Lerp(character.Tint, new Color(0.1f, 0.1f, 0.12f), 0.75f);
+        if (charactersStatusText != null)
+        {
+            charactersStatusText.text = isSelected ? "ВЫБРАН ДЛЯ ЗАБЕГА"
+                : unlocked ? "ГОТОВ К ЗАБЕГУ"
+                : $"ЗАКРЫТ · {character.Price} МОНЕТ";
+            charactersStatusText.color = isSelected ? new Color(0.55f, 0.95f, 0.72f)
+                : unlocked ? new Color(0.7f, 0.78f, 0.94f)
+                : new Color(0.95f, 0.66f, 0.34f);
+        }
 
         if (charactersNameText != null)
+        {
             charactersNameText.text = unlocked ? character.DisplayName : "???";
+            charactersNameText.color = unlocked
+                ? character.Tint
+                : new Color(0.62f, 0.62f, 0.7f);
+        }
 
         if (charactersAbilityText != null)
             charactersAbilityText.text = character.AbilityDescription;
@@ -450,6 +527,10 @@ public class UIManager : MonoBehaviour
         if (charactersActionButton != null)
             charactersActionButton.interactable =
                 !isSelected && (unlocked || characters.CanBuy(character));
+
+        // Витрина живёт отдельно от UI: она показывает настоящую 3D-модель
+        // открытого героя и не выдаёт внешность закрытого до покупки.
+        if (characterLobby != null) characterLobby.ShowCharacter(character, unlocked);
     }
 
     private void BuyOrSelectCharacter()
@@ -472,6 +553,7 @@ public class UIManager : MonoBehaviour
         Show(settingsPanel, true);
         Show(shopPanel, false);
         Show(charactersPanel, false);
+        if (characterLobby != null) characterLobby.SetVisible(false);
         RefreshSettings();
     }
 
@@ -557,7 +639,12 @@ public class UIManager : MonoBehaviour
         if (inMenu)
         {
             Show(menuPanel, true);
+            if (characterLobby != null) characterLobby.SetVisible(false);
             RefreshMenu();
+        }
+        else if (characterLobby != null)
+        {
+            characterLobby.SetVisible(false);
         }
     }
 

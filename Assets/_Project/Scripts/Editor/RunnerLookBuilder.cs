@@ -27,15 +27,16 @@ public static class RunnerLookBuilder
     private const string RenderingFolder = ProjectRoot + "/Rendering";
     private const string ProfilePath = RenderingFolder + "/PP_Runner.asset";
     private const string SkyboxPath = MaterialsFolder + "/M_Skybox.mat";
+    private const string BrickTexturePath = ProjectRoot + "/Textures/CampusRush/T_CampusBrick_v2.png";
 
     // Туман должен полностью закрывать даль ДО того места, где появляются
     // новые чанки, иначе видно, как трасса возникает из воздуха.
     // ChunkSpawner держит 4 чанка впереди по 30 юнитов = 120.
     // Значит туман обязан стать непрозрачным раньше 120.
-    private const float FogStart = 45f;
-    private const float FogEnd = 112f;
+    private const float FogStart = 70f;
+    private const float FogEnd = 185f;
 
-    private static readonly Color FogTint = new Color(0.42f, 0.34f, 0.46f);
+    private static readonly Color FogTint = new Color(0.58f, 0.78f, 0.86f);
 
     [MenuItem("Tools/Runner/Внешний вид — применить")]
     public static void ApplyFromMenu()
@@ -117,8 +118,8 @@ public static class RunnerLookBuilder
         // а не вся трасса.
         var bloom = AddOverride<Bloom>(profile);
         Override(bloom.threshold, 1.0f);
-        Override(bloom.intensity, 0.85f);
-        Override(bloom.scatter, 0.62f);
+        Override(bloom.intensity, 0.34f);
+        Override(bloom.scatter, 0.42f);
         Override(bloom.clamp, 16f);
         Override(bloom.tint, new Color(1f, 0.93f, 0.82f));
         Override(bloom.highQualityFiltering, false);
@@ -129,9 +130,9 @@ public static class RunnerLookBuilder
         // Затемняет углы, взгляд сам собирается к центру, где бежит игрок.
         // Стоит копейки: это математика по экрану, без лишних проходов.
         var vignette = AddOverride<Vignette>(profile);
-        Override(vignette.color, new Color(0.08f, 0.04f, 0.12f));
-        Override(vignette.intensity, 0.33f);
-        Override(vignette.smoothness, 0.45f);
+        Override(vignette.color, new Color(0.07f, 0.09f, 0.13f));
+        Override(vignette.intensity, 0.07f);
+        Override(vignette.smoothness, 0.30f);
         Override(vignette.rounded, false);
 
         // --- Цветокоррекция ---
@@ -139,21 +140,21 @@ public static class RunnerLookBuilder
         // за кадр. Поэтому добавить сюда ещё эффектов почти бесплатно.
         var colorAdjustments = AddOverride<ColorAdjustments>(profile);
         Override(colorAdjustments.postExposure, 0.12f);
-        Override(colorAdjustments.contrast, 14f);
-        Override(colorAdjustments.saturation, 16f);
-        Override(colorAdjustments.colorFilter, new Color(1f, 0.97f, 0.94f));
+        Override(colorAdjustments.contrast, 5f);
+        Override(colorAdjustments.saturation, 9f);
+        Override(colorAdjustments.colorFilter, new Color(1f, 0.99f, 0.95f));
 
         // Тёплый баланс белого: закат должен читаться как закат.
         var whiteBalance = AddOverride<WhiteBalance>(profile);
-        Override(whiteBalance.temperature, 9f);
-        Override(whiteBalance.tint, 4f);
+        Override(whiteBalance.temperature, 3f);
+        Override(whiteBalance.tint, 0f);
 
         // Тени уводим в холодный фиолет, света — в тёплый.
         // Классическая пара, за которую картинка перестаёт выглядеть плоской.
         var splitToning = AddOverride<SplitToning>(profile);
-        Override(splitToning.shadows, new Color(0.36f, 0.30f, 0.62f));
-        Override(splitToning.highlights, new Color(1f, 0.78f, 0.48f));
-        Override(splitToning.balance, -8f);
+        Override(splitToning.shadows, new Color(0.12f, 0.28f, 0.35f));
+        Override(splitToning.highlights, new Color(1.0f, 0.82f, 0.52f));
+        Override(splitToning.balance, 1f);
 
         // --- Два эффекта «на будущее», выключенные в ноль ---
         // Сами по себе они ничего не делают и ничего не стоят: URP включает
@@ -231,10 +232,11 @@ public static class RunnerLookBuilder
     private static void SetUpSky()
     {
         Material sky = AssetDatabase.LoadAssetAtPath<Material>(SkyboxPath);
+        Shader neonSky = Shader.Find("Runner/Neon Sunset Sky");
 
         if (sky == null)
         {
-            Shader shader = Shader.Find("Skybox/Procedural");
+            Shader shader = neonSky != null ? neonSky : Shader.Find("Skybox/Procedural");
             if (shader == null)
             {
                 Debug.LogWarning("[RunnerLookBuilder] Шейдер Skybox/Procedural не найден, небо пропущено.");
@@ -244,6 +246,34 @@ public static class RunnerLookBuilder
             EnsureFolder(MaterialsFolder);
             sky = new Material(shader);
             AssetDatabase.CreateAsset(sky, SkyboxPath);
+        }
+
+        // Предыдущая версия использовала стандартное Procedural Skybox,
+        // который под мобильным tonemapping уходил в сплошной жёлтый цвет.
+        // Наш шейдер даёт чёткий фиолетовый верх, магентовый горизонт и
+        // большой аркадный диск солнца без скачивания тяжёлой панорамы.
+        if (neonSky != null && sky.shader != neonSky)
+            sky.shader = neonSky;
+
+        if (sky.shader == neonSky)
+        {
+            SetColorIfExists(sky, "_TopColor", new Color(0.055f, 0.54f, 0.88f));
+            SetColorIfExists(sky, "_HorizonColor", new Color(0.46f, 0.80f, 0.94f));
+            SetColorIfExists(sky, "_GroundColor", new Color(0.72f, 0.86f, 0.90f));
+            SetColorIfExists(sky, "_SunColor", new Color(1.65f, 1.32f, 0.80f));
+            SetColorIfExists(sky, "_CloudColor", new Color(1f, 0.96f, 0.86f));
+            SetFloatIfExists(sky, "_CloudAmount", 0.54f);
+            // Keep the sun as a small compositional accent in the upper-right;
+            // the previous disc dominated the route and competed with hazards.
+            sky.SetVector("_SunDirection", new Vector4(0.58f, 0.22f, 0.78f, 0f));
+            SetFloatIfExists(sky, "_SunSize", 0.0012f);
+
+            RenderSettings.skybox = sky;
+            RenderSettings.ambientMode = AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(0.72f, 0.78f, 0.80f);
+            RenderSettings.ambientIntensity = 1.05f;
+            EditorUtility.SetDirty(sky);
+            return;
         }
 
         // Диск солнца режимом Simple: HighQuality на мобилке считает лишнее,
@@ -258,10 +288,10 @@ public static class RunnerLookBuilder
 
         SetFloatIfExists(sky, "_SunSize", 0.045f);
         SetFloatIfExists(sky, "_SunSizeConvergence", 4f);
-        SetFloatIfExists(sky, "_AtmosphereThickness", 1.55f);  // >1 = закатная дымка
-        SetFloatIfExists(sky, "_Exposure", 1.25f);
-        SetColorIfExists(sky, "_SkyTint", new Color(0.62f, 0.44f, 0.72f));
-        SetColorIfExists(sky, "_GroundColor", new Color(0.20f, 0.16f, 0.28f));
+        SetFloatIfExists(sky, "_AtmosphereThickness", 0.85f);
+        SetFloatIfExists(sky, "_Exposure", 0.72f);
+        SetColorIfExists(sky, "_SkyTint", new Color(0.25f, 0.08f, 0.45f));
+        SetColorIfExists(sky, "_GroundColor", new Color(0.03f, 0.01f, 0.10f));
 
         EditorUtility.SetDirty(sky);
 
@@ -307,11 +337,11 @@ public static class RunnerLookBuilder
         // Низкое солнце сбоку-сзади: тени ложатся вдоль трассы и поперёк неё,
         // по ним читается скорость. При солнце в зените тени под ногами
         // и картинка плоская.
-        sun.transform.rotation = Quaternion.Euler(24f, 35f, 0f);
-        sun.color = new Color(1f, 0.86f, 0.70f);
-        sun.intensity = 1.25f;
+        sun.transform.rotation = Quaternion.Euler(48f, 218f, 0f);
+        sun.color = new Color(1f, 0.91f, 0.76f);
+        sun.intensity = 1.42f;
         sun.shadows = LightShadows.Soft;
-        sun.shadowStrength = 0.72f;
+        sun.shadowStrength = 0.55f;
 
         EditorUtility.SetDirty(sun);
 
@@ -338,6 +368,24 @@ public static class RunnerLookBuilder
         // заметны, и это самое дешёвое лекарство.
         data.antialiasing = AntialiasingMode.FastApproximateAntialiasing;
 
+        CameraFollow follow = cam.GetComponent<CameraFollow>();
+        if (follow != null)
+        {
+            var followSo = new SerializedObject(follow);
+            followSo.FindProperty("offset").vector3Value = new Vector3(0f, 5.3f, -6.4f);
+            followSo.FindProperty("pitch").floatValue = 21f;
+            followSo.FindProperty("baseFov").floatValue = 53f;
+            followSo.FindProperty("maxFov").floatValue = 66f;
+            followSo.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        // Imported FBX files previously introduced mixed handedness and made
+        // the world feel mirrored. Keep the camera hierarchy strictly
+        // right-handed and let every authored prop use explicit rotations.
+        cam.transform.localScale = Vector3.one;
+        if (cam.GetComponent<CampusBackgroundLayers>() == null)
+            cam.gameObject.AddComponent<CampusBackgroundLayers>();
+
         EditorUtility.SetDirty(cam);
     }
 
@@ -354,33 +402,32 @@ public static class RunnerLookBuilder
     {
         // Трасса и окружение — холодные и тёмные, чтобы тёплое небо
         // и яркие подбираемые предметы отделялись от них сами собой.
-        Paint("M_Ground", new Color(0.15f, 0.13f, 0.22f), smoothness: 0.10f);
-        Paint("M_Rail", new Color(0.26f, 0.22f, 0.38f), smoothness: 0.30f);
-        Paint("M_Prop", new Color(0.31f, 0.26f, 0.44f), smoothness: 0.20f);
+        Paint("M_Ground", new Color(0.92f, 0.40f, 0.22f), smoothness: 0.30f, metallic: 0.01f);
+        ApplyGroundTexture();
+        Paint("M_Rail", new Color(0.05f, 0.38f, 0.36f), smoothness: 0.38f, metallic: 0.12f);
+        Paint("M_Prop", new Color(0.90f, 0.78f, 0.59f), smoothness: 0.28f, metallic: 0.01f);
 
         // Разметка светится слабо: даёт ощущение скорости, но не перетягивает
         // внимание с монет. Если полосы засветятся в белую кашу — это первая
         // ручка, которую надо крутить вниз.
-        Paint("M_Marker", new Color(0.94f, 0.91f, 0.83f), smoothness: 0.25f,
-              emission: new Color(0.94f, 0.91f, 0.83f), emissionIntensity: 0.85f);
+        Paint("M_Marker", new Color(0.98f, 0.91f, 0.75f), smoothness: 0.24f,
+              emission: new Color(1f, 0.84f, 0.52f), emissionIntensity: 1.04f);
 
         // Игрок остаётся оранжевым — цвет уже привычный, и на фиолетовой
         // трассе он читается лучше всего.
-        Paint("M_Player", new Color(0.98f, 0.48f, 0.16f), smoothness: 0.25f);
+        Paint("M_Player", new Color(0.05f, 0.31f, 0.64f), smoothness: 0.22f);
 
         // Цвет препятствия = что с ним делать. Не меняем язык, только
         // делаем его чище и ярче.
-        Paint("M_ObstacleBlock", new Color(0.88f, 0.20f, 0.26f), smoothness: 0.25f,
-              emission: new Color(0.88f, 0.20f, 0.26f), emissionIntensity: 1.4f);
-        Paint("M_ObstacleJump", new Color(0.99f, 0.72f, 0.16f), smoothness: 0.25f,
-              emission: new Color(0.99f, 0.72f, 0.16f), emissionIntensity: 1.4f);
-        Paint("M_ObstacleSlide", new Color(0.18f, 0.68f, 0.94f), smoothness: 0.25f,
-              emission: new Color(0.18f, 0.68f, 0.94f), emissionIntensity: 1.4f);
+        Paint("M_ObstacleBody", new Color(0.72f, 0.22f, 0.12f), smoothness: 0.30f, metallic: 0.02f);
+        Paint("M_ObstacleBlock", new Color(0.72f, 0.22f, 0.12f), smoothness: 0.28f);
+        Paint("M_ObstacleJump", new Color(0.05f, 0.27f, 0.64f), smoothness: 0.28f);
+        Paint("M_ObstacleSlide", new Color(0.02f, 0.43f, 0.39f), smoothness: 0.28f);
 
         // Монета — самый яркий объект в кадре. Так и надо: игрок должен
         // видеть цепочку монет раньше, чем препятствие.
-        Paint("M_Coin", new Color(1f, 0.82f, 0.22f), smoothness: 0.72f, metallic: 0.85f,
-              emission: new Color(1f, 0.78f, 0.28f), emissionIntensity: 2.6f);
+        Paint("M_Coin", new Color(1f, 0.66f, 0.10f), smoothness: 0.62f, metallic: 0.55f,
+              emission: new Color(1f, 0.58f, 0.10f), emissionIntensity: 1.55f);
 
         Paint("M_PowerUpMagnet", new Color(0.40f, 0.62f, 1f), smoothness: 0.5f,
               emission: new Color(0.40f, 0.62f, 1f), emissionIntensity: 2.2f);
@@ -398,9 +445,40 @@ public static class RunnerLookBuilder
         // окантовка крыши, и она сделана из M_Marker — того же материала,
         // что разметка. Так игрок читает «сюда можно встать» тем же языком,
         // которым уже читает полосы под ногами.
-        Paint("M_Train", new Color(0.16f, 0.62f, 0.58f), smoothness: 0.35f, metallic: 0.3f);
+        Paint("M_Train", new Color(0.05f, 0.25f, 0.62f), smoothness: 0.40f, metallic: 0.18f);
+        Paint("M_TrainRoof", new Color(0.92f, 0.82f, 0.66f), smoothness: 0.34f, metallic: 0.10f);
+        Paint("M_TrainWindow", new Color(0.04f, 0.20f, 0.30f), smoothness: 0.62f, metallic: 0.08f);
 
         AssetDatabase.SaveAssets();
+    }
+
+    private static void ApplyGroundTexture()
+    {
+        TextureImporter importer = AssetImporter.GetAtPath(BrickTexturePath) as TextureImporter;
+        if (importer != null)
+        {
+            bool changed = importer.wrapMode != TextureWrapMode.Repeat || importer.sRGBTexture == false;
+            importer.wrapMode = TextureWrapMode.Repeat;
+            importer.filterMode = FilterMode.Bilinear;
+            importer.anisoLevel = 4;
+            importer.sRGBTexture = true;
+            if (changed) importer.SaveAndReimport();
+        }
+
+        Texture2D brick = AssetDatabase.LoadAssetAtPath<Texture2D>(BrickTexturePath);
+        Material ground = AssetDatabase.LoadAssetAtPath<Material>(MaterialsFolder + "/M_Ground.mat");
+        if (brick == null || ground == null) return;
+        if (ground.HasProperty("_BaseMap"))
+        {
+            ground.SetTexture("_BaseMap", brick);
+            ground.SetTextureScale("_BaseMap", new Vector2(5f, 20f));
+        }
+        if (ground.HasProperty("_MainTex"))
+        {
+            ground.SetTexture("_MainTex", brick);
+            ground.SetTextureScale("_MainTex", new Vector2(5f, 20f));
+        }
+        EditorUtility.SetDirty(ground);
     }
 
     private static void Paint(string assetName, Color color, float smoothness,

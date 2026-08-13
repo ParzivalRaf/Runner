@@ -11,7 +11,7 @@ using UnityEngine;
 /// Что делает за один клик:
 ///   1. находит модель тела и файлы анимаций;
 ///   2. переключает их импорт на Humanoid, чтобы анимации налезли на модель;
-///   3. делает контроллер анимаций: бег, полёт, падение при смерти;
+///   3. делает контроллер анимаций: бег, полёт, подкат, падение при смерти;
 ///   4. ставит на голову пластину с фотографией лица;
 ///   5. подгоняет рост под 2 юнита и подставляет в ассет персонажа.
 ///
@@ -28,10 +28,201 @@ public static class RunnerRiggedCharacterBuilder
 
     private const float TargetHeight = 2.0f;
 
-    [MenuItem("Tools/Runner/Персонаж — собрать с анимацией")]
-    public static void BuildRigged()
+    // Пластина с фотографией нужна только моделям без лица — блочной фигурке
+    // и голым телам из паков. У настоящего скана головы лицо уже есть,
+    // и фото поверх него только мешает. Поэтому выключатель.
+    private const string FaceOption = "Tools/Runner/Клеить фото на лицо";
+    private const string FacePrefKey = "Runner.AttachFacePhoto";
+
+    private static bool AttachFaceEnabled
     {
-        string bodyPath = FindBody();
+        get => EditorPrefs.GetBool(FacePrefKey, true);
+        set => EditorPrefs.SetBool(FacePrefKey, value);
+    }
+
+    [MenuItem(FaceOption)]
+    private static void ToggleFace() => AttachFaceEnabled = !AttachFaceEnabled;
+
+    [MenuItem(FaceOption, true)]
+    private static bool ToggleFaceValidate()
+    {
+        Menu.SetChecked(FaceOption, AttachFaceEnabled);
+        return true;
+    }
+
+    /// <summary>
+    /// Создаёт папку так, чтобы о ней сразу узнал Unity.
+    ///
+    /// Обычного создания папки на диске мало: пока AssetDatabase о ней
+    /// не знает, сохранение в неё молча падает, и кнопка «срабатывает»
+    /// без всякого результата. Ровно так и терялся префаб персонажа.
+    /// </summary>
+    private static void EnsureFolder(string path)
+    {
+        if (AssetDatabase.IsValidFolder(path)) return;
+
+        string parent = Path.GetDirectoryName(path).Replace('\\', '/');
+        string leaf = Path.GetFileName(path);
+
+        if (!AssetDatabase.IsValidFolder(parent)) EnsureFolder(parent);
+
+        AssetDatabase.CreateFolder(parent, leaf);
+    }
+
+    // У каждого героя свой пункт. Сначала выделяем в Project нужный FBX,
+    // потом выбираем имя героя. Так новая сборка не перезаписывает прошлую.
+    [MenuItem("Tools/Runner/Персонаж — собрать с анимацией/Новичок")]
+    private static void BuildRookie() => BuildRigged("rookie");
+
+    [MenuItem("Tools/Runner/Персонаж — собрать с анимацией/Физрук")]
+    private static void BuildPe() => BuildRigged("pe");
+
+    [MenuItem("Tools/Runner/Персонаж — собрать с анимацией/Математичка")]
+    private static void BuildMath() => BuildRigged("math");
+
+    [MenuItem("Tools/Runner/Персонаж — собрать с анимацией/Химичка")]
+    private static void BuildChem() => BuildRigged("chem");
+
+    [MenuItem("Tools/Runner/Персонаж — собрать с анимацией/Директор")]
+    private static void BuildPrincipal() => BuildRigged("principal");
+
+    /// <summary>
+    /// Builds the art-directed Campus Rush cast in one deterministic pass.
+    /// Character ids, prices and abilities remain untouched; only the visual
+    /// prefab and its animation controller are replaced.
+    /// </summary>
+    [MenuItem("Tools/Runner/Campus Rush — собрать весь состав")]
+    private static void BuildCampusRoster()
+    {
+        var roster = new Dictionary<string, string>
+        {
+            { "rookie", "Assets/Resources/CampusRush/Characters/CR_Rookie.fbx" },
+            { "pe", "Assets/Resources/CampusRush/Characters/CR_PE.fbx" },
+            { "math", "Assets/Resources/CampusRush/Characters/CR_Math.fbx" },
+            { "chem", "Assets/Resources/CampusRush/Characters/CR_Chem.fbx" },
+            { "principal", "Assets/Resources/CampusRush/Characters/CR_Principal.fbx" },
+        };
+
+        try
+        {
+            foreach (KeyValuePair<string, string> entry in roster)
+            {
+                if (AssetDatabase.LoadAssetAtPath<GameObject>(entry.Value) == null)
+                    throw new FileNotFoundException("Campus character model is missing", entry.Value);
+
+                BuildRiggedInner(entry.Key, entry.Value, showDialog: false, attachFace: false);
+            }
+
+            EditorUtility.DisplayDialog("Campus Rush",
+                "Готово. Пять персонажей собраны в одном стиле и подключены к анимациям.", "Ок");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogException(e);
+            EditorUtility.DisplayDialog("Campus Rush", "Сборка состава сорвалась.\n\n" + e.Message, "Ок");
+        }
+    }
+
+    [MenuItem("Tools/Runner/Анимации — подготовить подкат")]
+    private static void PrepareSlideForExistingControllers()
+    {
+        string[] guids = AssetDatabase.FindAssets("t:AnimatorController", new[] { AnimatorFolder });
+        int updated = 0;
+
+        foreach (string guid in guids)
+        {
+            string path = AssetDatabase.GUIDToAssetPath(guid);
+            AnimatorController controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(path);
+            if (controller == null || controller.layers.Length == 0) continue;
+
+            if (!EnsureSlideSupport(controller)) continue;
+
+            EditorUtility.SetDirty(controller);
+            updated++;
+        }
+
+        AssetDatabase.SaveAssets();
+        EditorUtility.DisplayDialog("Runner",
+            "Готово. Обновлено контроллеров: " + updated + ".\n\n" +
+            "Открой нужный Character_*.controller, выбери состояние Slide " +
+            "и перетащи свой клип в поле Motion. Пока клипа нет, подкат " +
+            "безопасно использует анимацию бега.", "Ок");
+    }
+
+    [MenuItem("Tools/Runner/Анимации — починить Soccer Tackle")]
+    private static void RepairSoccerTackle()
+    {
+        const string tacklePath = ProjectRoot + "/Models/The Boss@Soccer Tackle.fbx";
+        if (AssetDatabase.LoadAssetAtPath<GameObject>(tacklePath) == null)
+        {
+            EditorUtility.DisplayDialog("Runner", "Не найден файл Soccer Tackle.\n\n" + tacklePath, "Ок");
+            return;
+        }
+
+        // Humanoid обязателен: Generic-клип из The Boss не может надёжно
+        // проигрываться на скелете X Bot. После импорта снова возьмём клип
+        // из FBX и назначим его всем существующим Slide-состояниям.
+        MakeHumanoid(tacklePath, isBody: false);
+        AnimationClip tackle = ClipFrom(tacklePath);
+        if (tackle == null)
+        {
+            EditorUtility.DisplayDialog("Runner", "Unity не смогла извлечь клип Soccer Tackle.", "Ок");
+            return;
+        }
+
+        int updated = 0;
+        foreach (string guid in AssetDatabase.FindAssets("t:AnimatorController", new[] { AnimatorFolder }))
+        {
+            AnimatorController controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(
+                AssetDatabase.GUIDToAssetPath(guid));
+            if (controller == null || controller.layers.Length == 0) continue;
+
+            EnsureSlideSupport(controller);
+            AnimatorState slide = FindState(controller.layers[0].stateMachine, "Slide");
+            if (slide == null || slide.motion == tackle) continue;
+
+            slide.motion = tackle;
+            EditorUtility.SetDirty(controller);
+            updated++;
+        }
+
+        AssetDatabase.SaveAssets();
+        EditorUtility.DisplayDialog("Runner", "Soccer Tackle готов. Обновлено контроллеров: " + updated + ".", "Ок");
+    }
+
+    private static void BuildRigged(string characterId)
+    {
+        try
+        {
+            BuildRiggedInner(characterId, null, showDialog: true, attachFace: AttachFaceEnabled);
+        }
+        catch (System.Exception e)
+        {
+            // Без этого исключение уходит только в консоль, а на экране
+            // не происходит ничего — выглядит как «кнопка не работает».
+            Debug.LogException(e);
+
+            EditorUtility.DisplayDialog("Runner",
+                "Сборка сорвалась.\n\n" + e.Message +
+                "\n\nПодробности в окне Console (Window → General → Console).", "Ок");
+        }
+    }
+
+    private static void BuildRiggedInner(string characterId, string explicitBodyPath,
+                                         bool showDialog, bool attachFace)
+    {
+        CharacterData targetCharacter = AssetDatabase.LoadAssetAtPath<CharacterData>(
+            CharacterFolder + "/Character_" + characterId + ".asset");
+
+        if (targetCharacter == null)
+        {
+            EditorUtility.DisplayDialog("Runner",
+                "Не нашёл ассет выбранного персонажа.\n\n" +
+                "Ожидался файл: Character_" + characterId + ".asset", "Ок");
+            return;
+        }
+
+        string bodyPath = explicitBodyPath ?? FindBody();
 
         if (bodyPath == null)
         {
@@ -52,7 +243,7 @@ public static class RunnerRiggedCharacterBuilder
         AssetDatabase.Refresh();
 
         // 2. Контроллер анимаций.
-        AnimatorController controller = BuildController(clipPaths);
+        AnimatorController controller = BuildController(clipPaths, characterId);
 
         // 3. Фигурка.
         var body = AssetDatabase.LoadAssetAtPath<GameObject>(bodyPath);
@@ -70,30 +261,35 @@ public static class RunnerRiggedCharacterBuilder
         // Иначе персонаж поедет сам по себе и уйдёт из-под камеры.
         animator.applyRootMotion = false;
 
-        AttachFace(animator);
+        if (attachFace) AttachFace(animator);
 
         var driver = root.AddComponent<CharacterAnimatorDriver>();
         var so = new SerializedObject(driver);
         so.FindProperty("animator").objectReferenceValue = animator;
         so.ApplyModifiedPropertiesWithoutUndo();
 
-        Directory.CreateDirectory(PrefabFolder);
-        AssetDatabase.Refresh();
+        EnsureFolder(PrefabFolder);
 
-        string prefabPath = PrefabFolder + "/Char_Rigged.prefab";
+        // Id персонажа нельзя менять: по нему хранится сейв. Поэтому имя
+        // префаба тоже строим из Id — у каждого героя свой стабильный файл.
+        string prefabPath = PrefabFolder + "/Char_" + characterId + ".prefab";
         PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
         Object.DestroyImmediate(root);
 
-        AssignToCharacter("Character_rookie", prefabPath);
+        AssignToCharacter("Character_" + characterId, prefabPath);
 
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
 
-        EditorUtility.DisplayDialog("Runner",
-            "Готово.\n\nТело: " + Path.GetFileName(bodyPath) +
-            "\nАнимаций подключено: " + clipPaths.Count +
-            "\n\nМодель: " + prefabPath +
-            "\nПодставлена в Новичка.\n\nЖми Play.", "Ок");
+        if (showDialog)
+        {
+            EditorUtility.DisplayDialog("Runner",
+                "Готово.\n\nПерсонаж: " + targetCharacter.DisplayName +
+                "\nТело: " + Path.GetFileName(bodyPath) +
+                "\nАнимаций подключено: " + clipPaths.Count +
+                "\n\nМодель: " + prefabPath +
+                "\nПодставлена выбранному персонажу.\n\nЖми Play.", "Ок");
+        }
     }
 
     // ------------------------------------------------------------ поиск
@@ -115,6 +311,22 @@ public static class RunnerRiggedCharacterBuilder
     /// </summary>
     private static string FindBody()
     {
+        // Если модель выделена в окне Project — берём именно её.
+        // Так не нужно гадать между своей моделью, телом из пака
+        // и двумя десятками причёсок, и так же будет работать
+        // для каждого следующего учителя.
+        if (Selection.activeObject != null)
+        {
+            string picked = AssetDatabase.GetAssetPath(Selection.activeObject);
+
+            if (!string.IsNullOrEmpty(picked)
+                && picked.ToLowerInvariant().EndsWith(".fbx")
+                && !Path.GetFileName(picked).Contains("@"))
+            {
+                return picked;
+            }
+        }
+
         string[] notBody = { "hair", "eyebrow", "beard", "buns", "buzzed", "parted" };
 
         List<string> candidates = AllModelPaths()
@@ -209,24 +421,24 @@ public static class RunnerRiggedCharacterBuilder
     }
 
     /// <summary>
-    /// Три состояния и ничего лишнего: бежит, летит, упал.
-    ///
-    /// Больше состояний сейчас не нужно — подкат в игре делается сжатием
-    /// фигурки, а не отдельной анимацией, и отдельный клип на него только
-    /// рассинхронизировался бы с этим сжатием.
+    /// Четыре состояния: бежит, летит, подкат, упал. Если отдельного клипа
+    /// подката ещё нет, состоянию временно ставится бег — механика не зависает,
+    /// а художник может подставить свой Motion позже через Animator.
     /// </summary>
-    private static AnimatorController BuildController(List<string> clipPaths)
+    private static AnimatorController BuildController(List<string> clipPaths, string characterId)
     {
-        Directory.CreateDirectory(AnimatorFolder);
-        AssetDatabase.Refresh();
+        EnsureFolder(AnimatorFolder);
 
-        string path = AnimatorFolder + "/Character.controller";
+        // Контроллер отдельный для каждого героя. Пересборка Химички не
+        // меняет контроллеры, префабы и анимации остальных персонажей.
+        string path = AnimatorFolder + "/Character_" + characterId + ".controller";
         AssetDatabase.DeleteAsset(path);
 
         AnimatorController controller = AnimatorController.CreateAnimatorControllerAtPath(path);
 
         controller.AddParameter("Grounded", AnimatorControllerParameterType.Bool);
         controller.AddParameter("Dead", AnimatorControllerParameterType.Bool);
+        controller.AddParameter("Sliding", AnimatorControllerParameterType.Bool);
 
         AnimatorStateMachine sm = controller.layers[0].stateMachine;
 
@@ -241,11 +453,17 @@ public static class RunnerRiggedCharacterBuilder
         AnimatorState air = sm.AddState("Air");
         air.motion = airClip != null ? airClip : runClip;
 
+        AnimatorState slide = sm.AddState("Slide");
+        AnimationClip slideClip = Pick(clipPaths, "sliding", "slide", "soccer tackle", "tackle");
+        slide.motion = slideClip != null ? slideClip : runClip;
+
         AnimatorState dead = sm.AddState("Dead");
         dead.motion = deadClip != null ? deadClip : airClip;
 
         Transition(run, air, "Grounded", false, 0.10f);
         Transition(air, run, "Grounded", true, 0.12f);
+        Transition(run, slide, "Sliding", true, 0.04f);
+        Transition(slide, run, "Sliding", false, 0.06f);
 
         // Смерть — из любого состояния: врезаться можно и на земле, и в воздухе.
         AnimatorStateTransition toDead = sm.AddAnyStateTransition(dead);
@@ -261,6 +479,71 @@ public static class RunnerRiggedCharacterBuilder
 
         EditorUtility.SetDirty(controller);
         return controller;
+    }
+
+    /// <summary>
+    /// Добавляет подкат в уже созданный контроллер и не трогает остальные
+    /// состояния, клипы и переходы. Нужен для Новичка и Физрука, которые уже
+    /// лежат в проекте и не должны пересобираться из FBX.
+    /// </summary>
+    private static bool EnsureSlideSupport(AnimatorController controller)
+    {
+        AnimatorStateMachine sm = controller.layers[0].stateMachine;
+        AnimatorState run = FindState(sm, "Run") ?? sm.defaultState;
+        if (run == null) return false;
+
+        bool changed = EnsureBoolParameter(controller, "Sliding");
+
+        AnimatorState slide = FindState(sm, "Slide");
+        if (slide == null)
+        {
+            slide = sm.AddState("Slide");
+            slide.motion = run.motion;
+            changed = true;
+        }
+
+        changed |= EnsureTransition(run, slide, "Sliding", true, 0.04f);
+        changed |= EnsureTransition(slide, run, "Sliding", false, 0.06f);
+        return changed;
+    }
+
+    private static AnimatorState FindState(AnimatorStateMachine stateMachine, string name)
+    {
+        foreach (ChildAnimatorState child in stateMachine.states)
+        {
+            if (child.state != null && child.state.name == name) return child.state;
+        }
+
+        return null;
+    }
+
+    private static bool EnsureBoolParameter(AnimatorController controller, string name)
+    {
+        foreach (AnimatorControllerParameter parameter in controller.parameters)
+        {
+            if (parameter.name == name) return false;
+        }
+
+        controller.AddParameter(name, AnimatorControllerParameterType.Bool);
+        return true;
+    }
+
+    private static bool EnsureTransition(AnimatorState from, AnimatorState to,
+                                         string parameter, bool value, float duration)
+    {
+        AnimatorConditionMode expected = value ? AnimatorConditionMode.If : AnimatorConditionMode.IfNot;
+        foreach (AnimatorStateTransition existing in from.transitions)
+        {
+            if (existing.destinationState != to) continue;
+
+            foreach (AnimatorCondition condition in existing.conditions)
+            {
+                if (condition.parameter == parameter && condition.mode == expected) return false;
+            }
+        }
+
+        Transition(from, to, parameter, value, duration);
+        return true;
     }
 
     private static void Transition(AnimatorState from, AnimatorState to,
@@ -309,6 +592,10 @@ public static class RunnerRiggedCharacterBuilder
     {
         var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(TextureFolder + "/Face_Rafael.png");
         if (texture == null) return;
+
+        // Спрашивать кость головы можно только у humanoid-скелета,
+        // иначе Unity ругается в консоль.
+        if (!animator.isHuman) return;
 
         Transform head = animator.GetBoneTransform(HumanBodyBones.Head);
         if (head == null) return;

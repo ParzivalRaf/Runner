@@ -1,6 +1,6 @@
 # Runner — endless runner с учителями
 
-Unity 6.3 LTS (6000.3.21f1) · URP · Android (портрет) · Input System
+Unity 6.3 LTS (6000.3.21f1) · URP · iOS (портрет) · Input System
 
 ---
 
@@ -78,7 +78,7 @@ Assets/_Project/
 
 **Прыжок задаётся высотой и временем, а не ускорением.** В инспекторе крутятся `Jump Height` (2.2) и `Jump Air Time` (0.75), а гравитация и сила толчка выводятся из них в `RecalculateJumpPhysics`. Так подбирать ощущение прыжка можно на понятных величинах.
 
-**Никаких Instantiate после старта.** Чанки, препятствия и монеты живут в пулах (`ObjectPool`). На дистанции 2900 м пул не растёт: 13 чанков и 24 препятствия, FPS держится 60. Это главная защита от фризов на слабых телефонах.
+**Почти никаких Instantiate во время забега.** Чанки, препятствия, монеты и бонусы заранее живут в пулах (`ObjectPool`). Если запас окажется мал, игра выведет заметное предупреждение в Console — это сигнал увеличить предзагрузку после проверки на телефоне.
 
 **Трасса не может быть непроходимой.** Гарантия строится в три слоя, все в `ObstacleSpawner`:
 
@@ -94,16 +94,16 @@ Assets/_Project/
 
 | Где | Поле | Сейчас |
 |---|---|---|
-| Player → Player Controller | Start Speed / Max Speed | 8 / 24 |
+| Player → Player Controller | Start Speed / Speed Gain / Max Speed | 14 / 0.30 / 24 |
 | Player → Player Controller | Jump Height / Air Time | 2.2 / 0.75 |
 | Player → Player Controller | Slide Duration | 0.6 |
-| ChunkSpawner → Obstacle Spawner | Start Safe Distance | 45 м без препятствий на старте |
+| ChunkSpawner → Obstacle Spawner | Start Safe Distance | 20 м без препятствий на старте |
 | ChunkSpawner → Obstacle Spawner | Min Action Spacing | 22 |
 | ChunkSpawner → Obstacle Spawner | Coin Chance / Coins Per Chunk | 0.75 / 10 |
 | GameManager → Game Manager | **God Mode** | отладка: проходить сквозь препятствия |
 | ChunkSpawner → Obstacle Spawner | Log Patterns | печатать раскладки в консоль |
 
-Кривая сложности — в `ObstaclePatterns.TierForDistance`: 0–200 м, 200–600, 600–1200, 1200+.
+Кривая сложности — в `ObstaclePatterns.TierForDistance`: 0–60 м, 60–300, 300–800, 800+.
 
 ---
 
@@ -118,17 +118,17 @@ JSON в `Application.persistentDataPath/save.json`. На macOS это
 
 ## Билд на телефон
 
-1. На Android-телефоне: Настройки → О телефоне → 7 тапов по «Номер сборки», затем Настройки → Для разработчиков → **Отладка по USB**.
-2. Подключить кабелем, подтвердить запрос на телефоне.
-3. Unity: **File → Build Profiles** → Run Device → выбрать телефон → **Build And Run**.
+1. Unity: **File → Build Profiles** → iOS → **Build**.
+2. Указать существующую папку `/Users/Rafael/Desktop/Runner_IOS` и в вопросе Unity выбрать **Append**.
+3. Открыть `Runner_IOS/Unity-iPhone.xcodeproj`, выбрать iPhone и нажать **⌘R**.
 
-Уже настроено: Android, портрет, Linear, IL2CPP, ARM64, minSdk 26, пакет `com.RafaelGames.Runner`.
+Уже настроено: iOS, портрет, Linear, IL2CPP, подпись Personal Team, пакет `com.RafaelGames.Runner`.
 
 ---
 
 ## Дальше по плану
 
-- **Сборка на телефон.** Единственное, что осталось от M0. Отладка по USB → File → Build Profiles → Build And Run. Свайпы на живом тачскрине ещё ни разу не проверялись.
+- **Проверка на iPhone.** Собрать через Xcode и проверить свайпы, FPS и отсутствие предупреждений `[ObjectPool]` в Console.
 - **Персонажи.** `CharacterData` (ScriptableObject), способности, экран выбора. Сначала на цветных капсулах-заглушках, модели подставим позже.
 - **M5 — модели учителей.** Скан головы (KIRI Engine) → чистка в Blender → бесплатное low-poly тело → авто-риг в Mixamo → Humanoid в Unity.
 - **M8 — звук и полировка.** `AudioManager` с пулом AudioSource, партиклы на монету и столкновение, подписанный APK. Настройки звука в сейве уже есть, к ним осталось подключить сам звук.

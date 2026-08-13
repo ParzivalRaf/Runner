@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.UI;
@@ -19,10 +20,12 @@ using UnityEngine.UI;
 public static class RunnerSceneBuilder
 {
     private const string ProjectRoot = "Assets/_Project";
+    private const string GameScenePath = ProjectRoot + "/Scenes/Game.unity";
     private const string MaterialsFolder = ProjectRoot + "/Materials";
     private const string ChunksFolder = ProjectRoot + "/Prefabs/Chunks";
     private const string ObstaclesFolder = ProjectRoot + "/Prefabs/Obstacles";
     private const string CharactersFolder = ProjectRoot + "/Characters";
+    private const string KenneyCityTrainPath = ProjectRoot + "/ThirdParty/KenneyTrain/train-electric-city-b.fbx";
 
     private const float LaneDistance = 2.5f;
     private const float TrackWidth = 12f;
@@ -33,6 +36,8 @@ public static class RunnerSceneBuilder
     [MenuItem("Tools/Runner/M1 — сцена с длинным полом")]
     public static void BuildM1Scene()
     {
+        if (!EnsureGameSceneOpen()) return;
+
         DeleteIfExists("Track");
         DeleteIfExists("ChunkSpawner");
         DeleteIfExists("Player");
@@ -52,6 +57,8 @@ public static class RunnerSceneBuilder
     [MenuItem("Tools/Runner/M2 — бесконечная трасса из чанков")]
     public static void BuildM2Scene()
     {
+        if (!EnsureGameSceneOpen()) return;
+
         DeleteIfExists("Track");
         DeleteIfExists("ChunkSpawner");
         DeleteIfExists("Player");
@@ -94,6 +101,8 @@ public static class RunnerSceneBuilder
     [MenuItem("Tools/Runner/M3 — препятствия и Game Over")]
     public static void BuildM3Scene()
     {
+        if (!EnsureGameSceneOpen()) return;
+
         DeleteIfExists("Track");
         DeleteIfExists("ChunkSpawner");
         DeleteIfExists("Player");
@@ -153,6 +162,8 @@ public static class RunnerSceneBuilder
     [MenuItem("Tools/Runner/M4 — монеты, очки и сохранения")]
     public static void BuildM4Scene()
     {
+        if (!EnsureGameSceneOpen()) return;
+
         DeleteIfExists("Track");
         DeleteIfExists("ChunkSpawner");
         DeleteIfExists("Player");
@@ -237,6 +248,21 @@ public static class RunnerSceneBuilder
         visual.GetComponent<Renderer>().sharedMaterial = mats.Coin;
         Object.DestroyImmediate(visual.GetComponent<Collider>());
 
+        // Raised center and embossed star make the pickup readable at a
+        // glance, matching the hero concept instead of a plain gold disc.
+        GameObject inset = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        inset.name = "Inset";
+        inset.transform.SetParent(root.transform, false);
+        inset.transform.localPosition = new Vector3(0f, 0f, -0.07f);
+        inset.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        inset.transform.localScale = new Vector3(0.54f, 0.035f, 0.54f);
+        inset.GetComponent<Renderer>().sharedMaterial = mats.Coin;
+        Object.DestroyImmediate(inset.GetComponent<Collider>());
+
+        GameObject star = CreateCoinStar(mats.Marker);
+        star.transform.SetParent(root.transform, false);
+        star.transform.localPosition = new Vector3(0f, 0f, -0.12f);
+
         var so = new SerializedObject(coin);
         so.FindProperty("visual").objectReferenceValue = visual.transform;
         so.ApplyModifiedPropertiesWithoutUndo();
@@ -248,17 +274,67 @@ public static class RunnerSceneBuilder
         return saved.GetComponent<Coin>();
     }
 
+    private static GameObject CreateCoinStar(Material material)
+    {
+        const int points = 10;
+        const float depth = 0.055f;
+        var vertices = new List<Vector3>();
+        var triangles = new List<int>();
+
+        for (int face = 0; face < 2; face++)
+        {
+            float z = face == 0 ? -depth * 0.5f : depth * 0.5f;
+            vertices.Add(new Vector3(0f, 0f, z));
+            for (int i = 0; i < points; i++)
+            {
+                float angle = Mathf.PI * 0.5f + i * Mathf.PI * 2f / points;
+                float radius = (i & 1) == 0 ? 0.34f : 0.16f;
+                vertices.Add(new Vector3(Mathf.Cos(angle) * radius, Mathf.Sin(angle) * radius, z));
+            }
+        }
+
+        for (int i = 0; i < points; i++)
+        {
+            int next = (i + 1) % points;
+            triangles.Add(0); triangles.Add(1 + i); triangles.Add(1 + next);
+            int backCenter = points + 1;
+            triangles.Add(backCenter); triangles.Add(backCenter + 1 + next); triangles.Add(backCenter + 1 + i);
+
+            int f0 = 1 + i, f1 = 1 + next;
+            int b0 = points + 2 + i, b1 = points + 2 + next;
+            triangles.Add(f0); triangles.Add(b0); triangles.Add(f1);
+            triangles.Add(f1); triangles.Add(b0); triangles.Add(b1);
+        }
+
+        var mesh = new Mesh { name = "CoinStarMesh" };
+        mesh.SetVertices(vertices);
+        mesh.SetTriangles(triangles, 0);
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+
+        var go = new GameObject("Star");
+        go.AddComponent<MeshFilter>().sharedMesh = mesh;
+        go.AddComponent<MeshRenderer>().sharedMaterial = material;
+        return go;
+    }
+
     // ================================================================== M6+M7
 
     [MenuItem("Tools/Runner/M6+M7 — полная игра: интерфейс, бонусы, магазин")]
     public static void BuildM6Scene()
     {
+        if (!EnsureGameSceneOpen()) return;
+
         DeleteIfExists("Track");
         DeleteIfExists("ChunkSpawner");
         DeleteIfExists("Player");
         DeleteIfExists("GameManager");
         DeleteIfExists("UI");
         DeleteIfExists("EventSystem");
+        // Витрина — корневой объект, а не ребёнок UI. Если не удалить её
+        // отдельно, каждая полная пересборка оставляет ещё одну камеру и
+        // RenderTexture в сцене. Это и было источником лишних объектов.
+        DeleteIfExists("CharacterLobbyPreview");
 
         Materials mats = LoadMaterials();
 
@@ -614,10 +690,10 @@ public static class RunnerSceneBuilder
     private const float UIReferenceWidth = 1080f;
     private const float UIReferenceHeight = 1920f;
 
-    private static readonly Color PanelDim = new Color(0.05f, 0.06f, 0.09f, 0.82f);
-    private static readonly Color ButtonMain = new Color(0.95f, 0.45f, 0.15f, 1f);
-    private static readonly Color ButtonSecondary = new Color(0.24f, 0.28f, 0.36f, 1f);
-    private static readonly Color CoinGold = new Color(0.98f, 0.82f, 0.28f, 1f);
+    private static readonly Color PanelDim = new Color(0.035f, 0.075f, 0.09f, 0.90f);
+    private static readonly Color ButtonMain = new Color(0.72f, 0.22f, 0.12f, 1f);
+    private static readonly Color ButtonSecondary = new Color(0.035f, 0.25f, 0.29f, 0.98f);
+    private static readonly Color CoinGold = new Color(0.98f, 0.65f, 0.12f, 1f);
 
     private static void BuildUserInterface(PlayerController player, ScoreManager score,
                                            CharacterManager characters)
@@ -657,7 +733,8 @@ public static class RunnerSceneBuilder
                                          out Button shopButton, out Button settingsButton);
 
         GameObject hudPanel = BuildHudPanel(safeArea.transform, out Text distanceText,
-                                            out Text coinsText, out Button pauseButton,
+                                            out Text coinsText, out Text openingGuideText,
+                                            out Text shieldText, out Button pauseButton,
                                             out GameObject[] barRoots,
                                             out RectTransform[] barFills);
 
@@ -682,6 +759,15 @@ public static class RunnerSceneBuilder
 
         CharacterPanelRefs charactersUi = BuildCharactersPanel(safeArea.transform);
 
+        // Витрина персонажа рисуется отдельной камерой в RawImage панели.
+        // Она создаётся один раз при полной пересборке, а саму маленькую
+        // 3D-студию компонент собирает в рантайме далеко от трассы.
+        var lobbyPreviewGo = new GameObject("CharacterLobbyPreview");
+        var lobbyPreview = lobbyPreviewGo.AddComponent<CharacterLobbyPreview>();
+        var previewSo = new SerializedObject(lobbyPreview);
+        previewSo.FindProperty("targetImage").objectReferenceValue = charactersUi.Preview;
+        previewSo.ApplyModifiedPropertiesWithoutUndo();
+
         var so = new SerializedObject(ui);
         so.FindProperty("menuPanel").objectReferenceValue = menu;
         so.FindProperty("hudPanel").objectReferenceValue = hudPanel;
@@ -702,6 +788,8 @@ public static class RunnerSceneBuilder
 
         so.FindProperty("hudDistanceText").objectReferenceValue = distanceText;
         so.FindProperty("hudCoinsText").objectReferenceValue = coinsText;
+        so.FindProperty("openingGuideText").objectReferenceValue = openingGuideText;
+        so.FindProperty("shieldText").objectReferenceValue = shieldText;
         so.FindProperty("pauseButton").objectReferenceValue = pauseButton;
 
         SetArray(so, "powerUpBarRoots", barRoots);
@@ -734,7 +822,8 @@ public static class RunnerSceneBuilder
         so.FindProperty("settingsCloseButton").objectReferenceValue = settingsClose;
 
         so.FindProperty("charactersCoinsText").objectReferenceValue = charactersUi.Coins;
-        so.FindProperty("charactersPortrait").objectReferenceValue = charactersUi.Portrait;
+        so.FindProperty("characterLobby").objectReferenceValue = lobbyPreview;
+        so.FindProperty("charactersStatusText").objectReferenceValue = charactersUi.Status;
         so.FindProperty("charactersNameText").objectReferenceValue = charactersUi.Name;
         so.FindProperty("charactersAbilityText").objectReferenceValue = charactersUi.Ability;
         so.FindProperty("charactersPhraseText").objectReferenceValue = charactersUi.Phrase;
@@ -777,45 +866,77 @@ public static class RunnerSceneBuilder
                                              out Button playButton, out Button charactersButton,
                                              out Button shopButton, out Button settingsButton)
     {
-        GameObject panel = UIPanel("MenuPanel", parent, PanelDim);
+        // Главное меню — стартовая карточка игры: вокруг видно трассу, а
+        // интерфейс сразу показывает прогресс, выбранного бегуна и действие.
+        GameObject panel = UIPanel("MenuPanel", parent, new Color(0.025f, 0.07f, 0.08f, 0.42f));
 
-        UIText("Title", panel.transform, "RUNNER", 120, TextAnchor.MiddleCenter,
-               new Vector2(0.5f, 1f), new Vector2(0f, -400f), new Vector2(900f, 180f));
+        UIBlock("TopGlow", panel.transform, new Vector2(0.5f, 1f), new Vector2(0f, -26f),
+                new Vector2(1080f, 10f), new Color(0.98f, 0.64f, 0.14f, 0.95f));
+        UIBlock("TitlePlate", panel.transform, new Vector2(0.5f, 1f), new Vector2(0f, -250f),
+                new Vector2(860f, 210f), new Color(0.035f, 0.16f, 0.18f, 0.84f));
 
-        UIText("Subtitle", panel.transform, "школьный забег", 48, TextAnchor.MiddleCenter,
-               new Vector2(0.5f, 1f), new Vector2(0f, -520f), new Vector2(900f, 80f));
+        Text title = UIText("Title", panel.transform, "CAMPUS RUSH", 108, TextAnchor.MiddleCenter,
+                            new Vector2(0.5f, 1f), new Vector2(0f, -225f), new Vector2(900f, 160f));
+        title.color = new Color(0.96f, 0.86f, 0.68f);
+        AddTextShadow(title, new Color(0.02f, 0.08f, 0.10f, 0.9f), new Vector2(4f, -4f));
 
-        bestText = UIText("Best", panel.transform, "Рекорд: 0 м", 52, TextAnchor.MiddleCenter,
-                          new Vector2(0.5f, 0.5f), new Vector2(0f, 360f), new Vector2(900f, 80f));
+        UIText("Subtitle", panel.transform, "БЕГИ  ·  УЧИСЬ  ·  ПОБЕЖДАЙ", 29, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 1f), new Vector2(0f, -325f), new Vector2(900f, 60f)).color =
+            new Color(0.67f, 0.90f, 0.83f);
 
-        coinsText = UIText("Coins", panel.transform, "Монет: 0", 52, TextAnchor.MiddleCenter,
-                           new Vector2(0.5f, 0.5f), new Vector2(0f, 280f), new Vector2(900f, 80f));
+        GameObject bestCard = UIBlock("BestCard", panel.transform, new Vector2(0.5f, 0.5f),
+                                      new Vector2(-245f, 285f), new Vector2(430f, 132f),
+                                      new Color(0.035f, 0.18f, 0.22f, 0.95f));
+        AddOutline(bestCard, new Color(0.24f, 0.67f, 0.62f, 0.65f), 2f);
+        UIText("BestCaption", bestCard.transform, "ЛУЧШИЙ ЗАБЕГ", 23, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 1f), new Vector2(0f, -30f), new Vector2(390f, 42f)).color =
+            new Color(0.57f, 0.86f, 0.80f);
+        bestText = UIText("Best", bestCard.transform, "Рекорд: 0 м", 40, TextAnchor.MiddleCenter,
+                          new Vector2(0.5f, 0.5f), new Vector2(0f, -17f), new Vector2(400f, 62f));
+
+        GameObject coinsCard = UIBlock("CoinsCard", panel.transform, new Vector2(0.5f, 0.5f),
+                                       new Vector2(245f, 285f), new Vector2(430f, 132f),
+                                       new Color(0.27f, 0.13f, 0.055f, 0.96f));
+        AddOutline(coinsCard, new Color(0.95f, 0.72f, 0.2f, 0.8f), 2f);
+        UIText("CoinsCaption", coinsCard.transform, "ВСЕГО МОНЕТ", 23, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 1f), new Vector2(0f, -30f), new Vector2(390f, 42f)).color =
+            new Color(1f, 0.83f, 0.36f);
+        coinsText = UIText("Coins", coinsCard.transform, "Монет: 0", 40, TextAnchor.MiddleCenter,
+                           new Vector2(0.5f, 0.5f), new Vector2(0f, -17f), new Vector2(400f, 62f));
         coinsText.color = CoinGold;
 
-        characterText = UIText("Character", panel.transform, "", 42, TextAnchor.MiddleCenter,
-                               new Vector2(0.5f, 0.5f), new Vector2(0f, 205f),
-                               new Vector2(900f, 70f));
+        GameObject runnerCard = UIBlock("RunnerCard", panel.transform, new Vector2(0.5f, 0.5f),
+                                        new Vector2(0f, 110f), new Vector2(850f, 105f),
+                                        new Color(0.045f, 0.13f, 0.16f, 0.94f));
+        AddOutline(runnerCard, new Color(0.18f, 0.55f, 0.51f, 0.72f), 2f);
+        UIText("RunnerCaption", runnerCard.transform, "НА СТАРТЕ", 22, TextAnchor.MiddleLeft,
+               new Vector2(0f, 0.5f), new Vector2(150f, 0f), new Vector2(240f, 50f)).color =
+            new Color(0.66f, 0.86f, 0.82f);
+        characterText = UIText("Character", runnerCard.transform, "", 34, TextAnchor.MiddleRight,
+                               new Vector2(1f, 0.5f), new Vector2(-270f, 0f), new Vector2(530f, 55f));
 
-        playButton = UIButton("PlayButton", panel.transform, "ИГРАТЬ", 76, ButtonMain,
-                              new Vector2(0.5f, 0.5f), new Vector2(0f, 60f),
-                              new Vector2(700f, 190f));
+        playButton = UIButton("PlayButton", panel.transform, "ВПЕРЁД!", 68, ButtonMain,
+                              new Vector2(0.5f, 0.5f), new Vector2(0f, -85f),
+                              new Vector2(820f, 180f));
+        AddOutline(playButton.gameObject, new Color(0.98f, 0.66f, 0.18f, 0.95f), 3f);
+        UIText("PlayHint", playButton.transform, "НАЧАТЬ ЗАБЕГ", 22, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 0f), new Vector2(0f, 24f), new Vector2(620f, 42f)).color =
+            new Color(0.22f, 0.055f, 0.025f);
 
-        charactersButton = UIButton("CharactersButton", panel.transform, "ПЕРСОНАЖИ", 54,
+        charactersButton = UIButton("CharactersButton", panel.transform, "КОМАНДА", 42,
                                     ButtonSecondary, new Vector2(0.5f, 0.5f),
-                                    new Vector2(0f, -110f), new Vector2(560f, 140f));
-
-        shopButton = UIButton("ShopButton", panel.transform, "МАГАЗИН", 54, ButtonSecondary,
-                              new Vector2(0.5f, 0.5f), new Vector2(0f, -270f),
-                              new Vector2(560f, 140f));
-
-        settingsButton = UIButton("SettingsButton", panel.transform, "НАСТРОЙКИ", 54,
-                                  ButtonSecondary, new Vector2(0.5f, 0.5f),
-                                  new Vector2(0f, -430f), new Vector2(560f, 140f));
+                                    new Vector2(-230f, -290f), new Vector2(430f, 125f));
+        shopButton = UIButton("ShopButton", panel.transform, "МАГАЗИН", 42, ButtonSecondary,
+                              new Vector2(0.5f, 0.5f), new Vector2(230f, -290f), new Vector2(430f, 125f));
+        settingsButton = UIButton("SettingsButton", panel.transform, "НАСТРОЙКИ", 38,
+                                  ButtonSecondary, new Vector2(0.5f, 0.5f), new Vector2(0f, -445f),
+                                  new Vector2(540f, 108f));
 
         UIText("Hint", panel.transform,
-               "свайпы: влево / вправо / вверх / вниз",
-               38, TextAnchor.MiddleCenter,
-               new Vector2(0.5f, 0f), new Vector2(0f, 180f), new Vector2(1000f, 70f));
+               "СВАЙПЫ  ←  →  ↑  ↓",
+               24, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 0f), new Vector2(0f, 120f), new Vector2(1000f, 54f)).color =
+            new Color(0.68f, 0.84f, 0.80f);
 
         return panel;
     }
@@ -828,7 +949,8 @@ public static class RunnerSceneBuilder
     {
         public GameObject Panel;
         public Text Coins;
-        public Image Portrait;
+        public RawImage Preview;
+        public Text Status;
         public Text Name;
         public Text Ability;
         public Text Phrase;
@@ -841,83 +963,127 @@ public static class RunnerSceneBuilder
     }
 
     /// <summary>
-    /// Карусель персонажей. Портрет пока просто цветной квадрат: когда
-    /// появятся фотографии учителей, в этот же Image подставится спрайт,
-    /// а логика в UIManager не изменится.
+    /// Карусель персонажей с живой 3D-витриной. RawImage получает картинку
+    /// отдельной камеры: основная камера забега её не видит.
     /// </summary>
     private static CharacterPanelRefs BuildCharactersPanel(Transform parent)
     {
         var refs = new CharacterPanelRefs();
 
-        GameObject panel = UIPanel("CharactersPanel", parent, PanelDim);
+        // Экран выбора должен ощущаться как место перед стартом забега, а не
+        // как обычный список. Поэтому здесь свой почти непрозрачный ночной
+        // фон, большая витрина и одна ясная главная кнопка снизу.
+        GameObject panel = UIPanel("CharactersPanel", parent, new Color(0.018f, 0.025f, 0.07f, 0.97f));
         refs.Panel = panel;
 
-        UIText("Title", panel.transform, "ПЕРСОНАЖИ", 88, TextAnchor.MiddleCenter,
-               new Vector2(0.5f, 1f), new Vector2(0f, -260f), new Vector2(900f, 130f));
+        // Тонкие неоновые линии дают экрану структуру, не требуя картинок
+        // или дополнительных ассетов.
+        UIBlock("TopGlow", panel.transform, new Vector2(0.5f, 1f), new Vector2(0f, -22f),
+                new Vector2(1080f, 8f), new Color(0.48f, 0.25f, 0.95f, 0.88f));
+        UIBlock("BottomGlow", panel.transform, new Vector2(0.5f, 0f), new Vector2(0f, 22f),
+                new Vector2(1080f, 6f), new Color(0.15f, 0.72f, 0.87f, 0.6f));
 
-        refs.Coins = UIText("Coins", panel.transform, "Монет: 0", 54, TextAnchor.MiddleCenter,
-                            new Vector2(0.5f, 1f), new Vector2(0f, -370f), new Vector2(900f, 80f));
+        refs.Close = UIButton("CloseButton", panel.transform, "<", 62, ButtonSecondary,
+                              new Vector2(0f, 1f), new Vector2(110f, -130f),
+                              new Vector2(130f, 100f));
+
+        UIText("BackHint", panel.transform, "НАЗАД", 26, TextAnchor.MiddleLeft,
+               new Vector2(0f, 1f), new Vector2(205f, -130f), new Vector2(150f, 60f)).color =
+            new Color(0.64f, 0.7f, 0.84f);
+
+        UIText("Title", panel.transform, "ВЫБОР БЕГУНА", 70, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 1f), new Vector2(0f, -105f), new Vector2(820f, 100f));
+        UIText("Subtitle", panel.transform, "СОБЕРИ СВОЮ КОМАНДУ", 28, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 1f), new Vector2(0f, -175f), new Vector2(820f, 54f)).color =
+            new Color(0.55f, 0.64f, 0.84f);
+
+        GameObject wallet = UIBlock("Wallet", panel.transform, new Vector2(1f, 1f),
+                                    new Vector2(-160f, -130f), new Vector2(250f, 94f),
+                                    new Color(0.18f, 0.13f, 0.06f, 0.98f));
+        AddOutline(wallet, new Color(0.98f, 0.75f, 0.22f, 0.8f), 2f);
+        refs.Coins = UIText("Coins", wallet.transform, "Монет: 0", 34, TextAnchor.MiddleCenter,
+                            new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(235f, 70f));
         refs.Coins.color = CoinGold;
 
-        // Портрет.
-        var portraitGo = new GameObject("Portrait", typeof(RectTransform));
-        portraitGo.transform.SetParent(panel.transform, false);
+        // Большая витрина: наружная окантовка, тёмная внутренняя рамка и
+        // картинка 3D-камеры. Три слоя не дают модели потеряться на фоне.
+        GameObject previewFrame = UIBlock("PreviewFrame", panel.transform,
+                                          new Vector2(0.5f, 0.5f), new Vector2(0f, 215f),
+                                          new Vector2(960f, 710f), new Color(0.16f, 0.08f, 0.34f, 1f));
+        AddOutline(previewFrame, new Color(0.57f, 0.33f, 1f, 0.9f), 3f);
 
-        var portraitRect = (RectTransform)portraitGo.transform;
-        portraitRect.anchorMin = new Vector2(0.5f, 0.5f);
-        portraitRect.anchorMax = new Vector2(0.5f, 0.5f);
-        portraitRect.pivot = new Vector2(0.5f, 0.5f);
-        portraitRect.sizeDelta = new Vector2(420f, 420f);
-        portraitRect.anchoredPosition = new Vector2(0f, 280f);
+        GameObject previewInset = UIBlock("PreviewInset", previewFrame.transform,
+                                          new Vector2(0.5f, 0.5f), Vector2.zero,
+                                          new Vector2(936f, 686f), new Color(0.025f, 0.02f, 0.075f, 1f));
 
-        refs.Portrait = portraitGo.AddComponent<Image>();
-        refs.Portrait.color = Color.white;
-        refs.Portrait.raycastTarget = false;
+        var previewGo = new GameObject("Preview", typeof(RectTransform));
+        previewGo.transform.SetParent(previewInset.transform, false);
 
-        // Стрелки. Символы «<» и «>», а не ◀ ▶: встроенный шрифт
-        // LegacyRuntime не гарантирует наличие треугольников в кириллической сборке.
-        refs.Prev = UIButton("PrevButton", panel.transform, "<", 90, ButtonSecondary,
-                             new Vector2(0.5f, 0.5f), new Vector2(-380f, 280f),
-                             new Vector2(160f, 160f));
+        var previewRect = (RectTransform)previewGo.transform;
+        previewRect.anchorMin = Vector2.zero;
+        previewRect.anchorMax = Vector2.one;
+        previewRect.offsetMin = new Vector2(8f, 8f);
+        previewRect.offsetMax = new Vector2(-8f, -8f);
 
-        refs.Next = UIButton("NextButton", panel.transform, ">", 90, ButtonSecondary,
-                             new Vector2(0.5f, 0.5f), new Vector2(380f, 280f),
-                             new Vector2(160f, 160f));
+        refs.Preview = previewGo.AddComponent<RawImage>();
+        refs.Preview.color = Color.white;
+        refs.Preview.raycastTarget = false;
 
-        refs.Count = UIText("Count", panel.transform, "1 / 1", 40, TextAnchor.MiddleCenter,
-                            new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(400f, 60f));
-        refs.Count.color = new Color(0.65f, 0.7f, 0.8f);
+        UIBlock("PreviewTag", previewFrame.transform, new Vector2(0.5f, 1f), new Vector2(0f, -40f),
+                new Vector2(360f, 60f), new Color(0.08f, 0.055f, 0.17f, 0.94f));
+        UIText("TagText", previewFrame.transform, "ТВОЙ СЛЕДУЮЩИЙ БЕГУН", 24, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 1f), new Vector2(0f, -40f), new Vector2(340f, 50f)).color =
+            new Color(0.78f, 0.7f, 1f);
 
-        refs.Name = UIText("Name", panel.transform, "—", 64, TextAnchor.MiddleCenter,
-                           new Vector2(0.5f, 0.5f), new Vector2(0f, -60f), new Vector2(940f, 90f));
+        refs.Prev = UIButton("PrevButton", panel.transform, "<", 82, ButtonSecondary,
+                             new Vector2(0.5f, 0.5f), new Vector2(-440f, 215f),
+                             new Vector2(118f, 148f));
+        refs.Next = UIButton("NextButton", panel.transform, ">", 82, ButtonSecondary,
+                             new Vector2(0.5f, 0.5f), new Vector2(440f, 215f),
+                             new Vector2(118f, 148f));
 
-        refs.Ability = UIText("Ability", panel.transform, "", 42, TextAnchor.MiddleCenter,
-                              new Vector2(0.5f, 0.5f), new Vector2(0f, -150f),
-                              new Vector2(940f, 70f));
+        refs.Count = UIText("Count", panel.transform, "1 / 1", 32, TextAnchor.MiddleCenter,
+                            new Vector2(0.5f, 0.5f), new Vector2(0f, -160f), new Vector2(300f, 52f));
+        refs.Count.color = new Color(0.56f, 0.66f, 0.9f);
+
+        GameObject infoCard = UIBlock("InfoCard", panel.transform, new Vector2(0.5f, 0.5f),
+                                      new Vector2(0f, -330f), new Vector2(920f, 250f),
+                                      new Color(0.055f, 0.065f, 0.14f, 0.98f));
+        AddOutline(infoCard, new Color(0.25f, 0.34f, 0.66f, 0.72f), 2f);
+
+        refs.Status = UIText("Status", infoCard.transform, "ГОТОВ К ЗАБЕГУ", 26, TextAnchor.MiddleCenter,
+                             new Vector2(0.5f, 1f), new Vector2(0f, -30f), new Vector2(780f, 44f));
+
+        refs.Name = UIText("Name", infoCard.transform, "—", 58, TextAnchor.MiddleCenter,
+                           new Vector2(0.5f, 1f), new Vector2(0f, -84f), new Vector2(860f, 76f));
+
+        UIText("AbilityCaption", infoCard.transform, "ОСОБАЯ СПОСОБНОСТЬ", 22, TextAnchor.MiddleCenter,
+               new Vector2(0.5f, 1f), new Vector2(0f, -135f), new Vector2(800f, 38f)).color =
+            new Color(0.5f, 0.65f, 0.96f);
+        refs.Ability = UIText("Ability", infoCard.transform, "", 36, TextAnchor.MiddleCenter,
+                              new Vector2(0.5f, 1f), new Vector2(0f, -174f),
+                              new Vector2(850f, 56f));
         refs.Ability.color = new Color(0.55f, 0.85f, 0.65f);
 
-        refs.Phrase = UIText("Phrase", panel.transform, "", 38, TextAnchor.MiddleCenter,
-                             new Vector2(0.5f, 0.5f), new Vector2(0f, -250f),
-                             new Vector2(880f, 120f));
+        refs.Phrase = UIText("Phrase", infoCard.transform, "", 28, TextAnchor.MiddleCenter,
+                             new Vector2(0.5f, 1f), new Vector2(0f, -220f),
+                             new Vector2(840f, 54f));
         refs.Phrase.color = new Color(0.75f, 0.78f, 0.86f);
         refs.Phrase.fontStyle = FontStyle.Italic;
         // Длинную фразу переносим по словам, иначе она вылезет за экран.
         refs.Phrase.horizontalOverflow = HorizontalWrapMode.Wrap;
 
         refs.Action = UIButton("ActionButton", panel.transform, "ВЫБРАТЬ", 52, ButtonMain,
-                               new Vector2(0.5f, 0.5f), new Vector2(0f, -420f),
-                               new Vector2(620f, 160f));
+                               new Vector2(0.5f, 0.5f), new Vector2(0f, -570f),
+                               new Vector2(760f, 150f));
         refs.ActionLabel = refs.Action.GetComponentInChildren<Text>();
-
-        refs.Close = UIButton("CloseButton", panel.transform, "НАЗАД", 58, ButtonSecondary,
-                              new Vector2(0.5f, 0f), new Vector2(0f, 260f),
-                              new Vector2(560f, 150f));
 
         return refs;
     }
 
     private static GameObject BuildHudPanel(Transform parent, out Text distanceText,
-                                            out Text coinsText, out Button pauseButton,
+                                            out Text coinsText, out Text openingGuideText,
+                                            out Text shieldText, out Button pauseButton,
                                             out GameObject[] barRoots,
                                             out RectTransform[] barFills)
     {
@@ -934,6 +1100,23 @@ public static class RunnerSceneBuilder
                            new Vector2(1f, 1f), new Vector2(-220f, -110f),
                            new Vector2(320f, 100f));
         coinsText.color = CoinGold;
+
+        // Короткая живая подсказка для первых 150 метров. Она стоит ниже
+        // счётчика, не закрывает ближайшее препятствие и сама исчезает после
+        // первой крыши поезда.
+        openingGuideText = UIText("OpeningGuide", panel.transform, "", 32, TextAnchor.MiddleCenter,
+                                  new Vector2(0.5f, 1f), new Vector2(0f, -315f),
+                                  new Vector2(900f, 64f));
+        openingGuideText.color = new Color(0.75f, 0.86f, 1f, 1f);
+        AddTextShadow(openingGuideText, new Color(0.05f, 0.02f, 0.15f, 0.95f), new Vector2(2f, -2f));
+
+        // У Директора это не декоративная иконка: число меняется сразу после
+        // спасения. Для остальных персонажей компонент скрывает строку.
+        shieldText = UIText("Shield", panel.transform, "", 30, TextAnchor.MiddleRight,
+                            new Vector2(1f, 1f), new Vector2(-210f, -190f),
+                            new Vector2(330f, 56f));
+        shieldText.color = new Color(1f, 0.4f, 0.34f, 1f);
+        shieldText.gameObject.SetActive(false);
 
         pauseButton = UIButton("PauseButton", panel.transform, "II", 56, ButtonSecondary,
                                new Vector2(0f, 1f), new Vector2(100f, -110f),
@@ -1104,6 +1287,9 @@ public static class RunnerSceneBuilder
     private static Font UIFont =>
         Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
+    private static Sprite UIRoundedSprite =>
+        AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd");
+
     private static GameObject UIObject(string name, Transform parent)
     {
         var go = new GameObject(name, typeof(RectTransform));
@@ -1128,6 +1314,50 @@ public static class RunnerSceneBuilder
         image.raycastTarget = true;   // ловит тапы, чтобы они не проходили сквозь панель
 
         return panel;
+    }
+
+    /// <summary>
+    /// Простой прямоугольник UI с заданной точкой привязки. Нужен для карточек,
+    /// рамок и декоративных линий: так лобби остаётся аккуратным без набора
+    /// картинок и не зависит от того, импортирован ли сторонний UI-пак.
+    /// </summary>
+    private static GameObject UIBlock(string name, Transform parent, Vector2 anchor,
+                                      Vector2 position, Vector2 size, Color color)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+
+        var rect = (RectTransform)go.transform;
+        rect.anchorMin = anchor;
+        rect.anchorMax = anchor;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.sizeDelta = size;
+        rect.anchoredPosition = position;
+
+        var image = go.AddComponent<Image>();
+        image.color = color;
+        image.sprite = UIRoundedSprite;
+        image.type = Image.Type.Sliced;
+        image.raycastTarget = false;
+        return go;
+    }
+
+    /// <summary>Тонкая обводка отделяет карточку от фона на ярком экране.</summary>
+    private static void AddOutline(GameObject go, Color color, float distance)
+    {
+        var outline = go.AddComponent<Outline>();
+        outline.effectColor = color;
+        outline.effectDistance = new Vector2(distance, -distance);
+        outline.useGraphicAlpha = false;
+    }
+
+    /// <summary>Мягкая тень делает заголовок читаемым на ярком фоне трассы.</summary>
+    private static void AddTextShadow(Text text, Color color, Vector2 distance)
+    {
+        var shadow = text.gameObject.AddComponent<Shadow>();
+        shadow.effectColor = color;
+        shadow.effectDistance = distance;
+        shadow.useGraphicAlpha = false;
     }
 
     private static Text UIText(string name, Transform parent, string content, int fontSize,
@@ -1215,6 +1445,11 @@ public static class RunnerSceneBuilder
 
         var image = go.AddComponent<Image>();
         image.color = color;
+        image.sprite = UIRoundedSprite;
+        image.type = Image.Type.Sliced;
+
+        // Обводка делает даже простую кнопку читаемой на подвижном фоне.
+        AddOutline(go, Color.Lerp(color, Color.black, 0.35f), 2f);
 
         var button = go.AddComponent<Button>();
         button.targetGraphic = image;
@@ -1245,6 +1480,9 @@ public static class RunnerSceneBuilder
         public Material Slide;
         public Material Coin;
         public Material Train;
+        public Material TrainRoof;
+        public Material TrainWindow;
+        public Material ObstacleBody;
     }
 
     private static Materials LoadMaterials()
@@ -1264,10 +1502,16 @@ public static class RunnerSceneBuilder
             Slide = GetOrCreateMaterial("M_ObstacleSlide", new Color(0.24f, 0.44f, 0.70f)),
             Coin = GetOrCreateMaterial("M_Coin", new Color(0.95f, 0.78f, 0.20f)),
 
+            // Тёмная основа и цветная подсветка делают препятствия похожими
+            // на реальные объекты, а не на три ярких куба из прототипа.
+            ObstacleBody = GetOrCreateMaterial("M_ObstacleBody", new Color(0.09f, 0.07f, 0.18f)),
+
             // Бирюзовый: единственный цвет, который не занят ни одним
             // «нельзя» — красным, жёлтым и синим. Поезд не запрещает,
             // он предлагает, и цвет должен это говорить.
-            Train = GetOrCreateMaterial("M_Train", new Color(0.16f, 0.62f, 0.58f))
+            Train = GetOrCreateMaterial("M_Train", new Color(0.16f, 0.62f, 0.58f)),
+            TrainRoof = GetOrCreateMaterial("M_TrainRoof", new Color(0.08f, 0.10f, 0.22f)),
+            TrainWindow = GetOrCreateMaterial("M_TrainWindow", new Color(0.08f, 0.72f, 0.95f))
         };
     }
 
@@ -1295,7 +1539,8 @@ public static class RunnerSceneBuilder
                 trigger.center = new Vector3(0f, 1.4f, 0f);
                 trigger.size = new Vector3(1.7f, 2.8f, 0.7f);
                 Box("Visual", root.transform, new Vector3(1.7f, 2.8f, 0.7f),
-                    new Vector3(0f, 1.4f, 0f), mats.Block);
+                    new Vector3(0f, 1.4f, 0f), mats.ObstacleBody);
+                AddObstacleWarningFace(root.transform, "Block", 1.42f, 1.52f, mats.Block);
                 break;
 
             // Низкий барьер по колено: перепрыгнуть.
@@ -1303,7 +1548,13 @@ public static class RunnerSceneBuilder
                 trigger.center = new Vector3(0f, 0.45f, 0f);
                 trigger.size = new Vector3(1.7f, 0.9f, 0.7f);
                 Box("Visual", root.transform, new Vector3(1.7f, 0.9f, 0.7f),
-                    new Vector3(0f, 0.45f, 0f), mats.Jump);
+                    new Vector3(0f, 0.45f, 0f), mats.ObstacleBody);
+                AddObstacleWarningFace(root.transform, "Jump", 0.52f, 0.25f, mats.Jump);
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    Box("JumpLeg_" + side, root.transform, new Vector3(0.15f, 0.85f, 0.15f),
+                        new Vector3(side * 0.67f, 0.42f, 0f), mats.Jump);
+                }
                 break;
 
             // Балка сверху: низ на 1.1, стоя игрок (2.0) задевает, в подкате (0.9) проезжает.
@@ -1311,7 +1562,8 @@ public static class RunnerSceneBuilder
                 trigger.center = new Vector3(0f, 1.45f, 0f);
                 trigger.size = new Vector3(1.7f, 0.7f, 0.7f);
                 Box("Visual", root.transform, new Vector3(1.7f, 0.7f, 0.7f),
-                    new Vector3(0f, 1.45f, 0f), mats.Slide);
+                    new Vector3(0f, 1.45f, 0f), mats.ObstacleBody);
+                AddObstacleWarningFace(root.transform, "Slide", 1.45f, 0.22f, mats.Slide);
 
                 // Стойки — только для читаемости, коллайдеров у них нет.
                 for (int side = -1; side <= 1; side += 2)
@@ -1327,6 +1579,22 @@ public static class RunnerSceneBuilder
         Object.DestroyImmediate(root);
 
         return saved.GetComponent<Obstacle>();
+    }
+
+    /// <summary>
+    /// Светящаяся лицевая панель оставляет цветовой язык препятствия, но
+    /// даёт ему корпус, кромку и глубину вместо сплошной неоновой коробки.
+    /// </summary>
+    private static void AddObstacleWarningFace(Transform parent, string name, float y,
+                                               float height, Material warningMaterial)
+    {
+        Box(name + "_Screen", parent, new Vector3(1.34f, height, 0.045f),
+            new Vector3(0f, y, -0.375f), warningMaterial);
+        for (int side = -1; side <= 1; side += 2)
+        {
+            Box(name + "_Edge_" + side, parent, new Vector3(0.10f, height + 0.14f, 0.06f),
+                new Vector3(side * 0.73f, y, -0.39f), warningMaterial);
+        }
     }
 
     /// <summary>
@@ -1368,16 +1636,32 @@ public static class RunnerSceneBuilder
         trigger.center = new Vector3(0f, kill * 0.5f, mid);
         trigger.size = new Vector3(width, kill, length);
 
-        // Корпус: чисто внешний вид, коллайдера у него нет.
-        Box("Body", root.transform, new Vector3(width, roof, length),
-            new Vector3(0f, roof * 0.5f, mid), mats.Train);
+        // Корпус: если CC0-модель Kenney уже импортирована, используем её
+        // вместо старого прямоугольника. Коллайдеры и точная высота крыши
+        // остаются нашими, поэтому красивая модель не меняет ни одной
+        // проверенной механики поезда.
+        if (!AddKenneyCityTrainVisual(root.transform, width, roof, length, mats.Train))
+        {
+            Box("Body", root.transform, new Vector3(width, roof, length),
+                new Vector3(0f, roof * 0.5f, mid), mats.Train);
+        }
 
         // Крыша: тонкая пластина, верх ровно на RoofHeight.
         // Коллайдер НЕ триггер — иначе луч поиска пола её не увидит.
         var roofGo = Box("Roof", root.transform, new Vector3(width, 0.12f, length),
-                         new Vector3(0f, roof - 0.06f, mid), mats.Marker,
+                         new Vector3(0f, roof - 0.06f, mid), mats.TrainRoof,
                          keepCollider: true);
         roofGo.AddComponent<GroundSurface>();
+
+        AddTrainWindows(root.transform, width, roof, length, mats);
+
+        // Небольшие сегменты на крыше добавляют масштаб и скорость, сохраняя
+        // тёмную безопасную поверхность вместо огромной белой плоскости.
+        for (int panel = 1; panel < 6; panel++)
+        {
+            Box("RoofPanel_" + panel, root.transform, new Vector3(width * 0.72f, 0.025f, 0.09f),
+                new Vector3(0f, roof + 0.014f, panel * (length / 6f)), mats.Marker);
+        }
 
         // Светящаяся полоса по краю крыши. Это не украшение: игрок должен
         // на скорости отличать «сюда можно запрыгнуть» от «сюда нельзя»,
@@ -1395,6 +1679,117 @@ public static class RunnerSceneBuilder
         Object.DestroyImmediate(root);
 
         return saved.GetComponent<Obstacle>();
+    }
+
+    private static void AddTrainWindows(Transform parent, float width, float roof,
+                                        float length, Materials mats)
+    {
+        // Окна накладываются поверх CC0-вагона. Благодаря этому модель
+        // остаётся узнаваемым поездом даже когда вся сцена перекрашена в
+        // единый стиль, а поезд хорошо читается на скорости.
+        for (int side = -1; side <= 1; side += 2)
+        {
+            for (int window = 0; window < 5; window++)
+            {
+                float z = 1.10f + window * 1.88f;
+                Box("Window_" + side + "_" + window, parent,
+                    new Vector3(0.035f, 0.62f, 1.14f),
+                    new Vector3(side * (width * 0.5f + 0.018f), roof * 0.54f, z), mats.TrainWindow);
+            }
+
+            // Кромка внизу визуально отделяет корпус от путей и даёт
+            // вагону более тяжёлый, качественный силуэт.
+            Box("UnderGlow_" + side, parent, new Vector3(0.055f, 0.08f, length * 0.82f),
+                new Vector3(side * (width * 0.5f + 0.025f), 0.28f, length * 0.5f), mats.TrainWindow);
+        }
+
+        for (int side = -1; side <= 1; side += 2)
+        {
+            Box("RearLight_" + side, parent, new Vector3(0.30f, 0.18f, 0.045f),
+                new Vector3(side * 0.42f, roof * 0.58f, -0.02f), mats.TrainWindow);
+        }
+    }
+
+    /// <summary>
+    /// Подгоняет импортированный вагон точно в игровые габариты 1.7 × 2.6 × 10.
+    /// Так можно заменить только картинку поезда, не трогая крышу, пандус и
+    /// триггер столкновения, которые уже много раз проверялись в забеге.
+    /// </summary>
+    private static bool AddKenneyCityTrainVisual(Transform parent, float width, float height,
+                                                 float length, Material material)
+    {
+        GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>(KenneyCityTrainPath);
+        if (source == null) return false;
+
+        GameObject visual = PrefabUtility.InstantiatePrefab(source) as GameObject;
+        if (visual == null) return false;
+
+        visual.name = "KenneyCityTrain";
+        visual.transform.SetParent(parent, false);
+        visual.transform.localPosition = Vector3.zero;
+        visual.transform.localRotation = Quaternion.identity;
+
+        Bounds sourceBounds = LocalRendererBounds(visual.transform);
+        if (sourceBounds.size.x <= 0.001f || sourceBounds.size.y <= 0.001f || sourceBounds.size.z <= 0.001f)
+        {
+            Object.DestroyImmediate(visual);
+            return false;
+        }
+
+        Vector3 scale = new Vector3(width / sourceBounds.size.x,
+                                    height / sourceBounds.size.y,
+                                    length / sourceBounds.size.z);
+        visual.transform.localScale = scale;
+        visual.transform.localPosition = new Vector3(-sourceBounds.center.x * scale.x,
+                                                      -sourceBounds.min.y * scale.y,
+                                                      length * 0.5f - sourceBounds.center.z * scale.z);
+
+        foreach (Collider collider in visual.GetComponentsInChildren<Collider>(true))
+            Object.DestroyImmediate(collider);
+
+        foreach (Renderer renderer in visual.GetComponentsInChildren<Renderer>(true))
+        {
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+            renderer.receiveShadows = true;
+        }
+
+        return true;
+    }
+
+    /// <summary>Общие границы всех мешей в локальных координатах корня модели.</summary>
+    private static Bounds LocalRendererBounds(Transform root)
+    {
+        Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
+        bool hasBounds = false;
+        Bounds result = new Bounds(Vector3.zero, Vector3.zero);
+
+        foreach (Renderer renderer in renderers)
+        {
+            Bounds world = renderer.bounds;
+            Vector3 extents = world.extents;
+
+            for (int x = -1; x <= 1; x += 2)
+            {
+                for (int y = -1; y <= 1; y += 2)
+                {
+                    for (int z = -1; z <= 1; z += 2)
+                    {
+                        Vector3 corner = world.center + Vector3.Scale(extents, new Vector3(x, y, z));
+                        Vector3 local = root.InverseTransformPoint(corner);
+
+                        if (!hasBounds)
+                        {
+                            result = new Bounds(local, Vector3.zero);
+                            hasBounds = true;
+                        }
+                        else result.Encapsulate(local);
+                    }
+                }
+            }
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -1422,6 +1817,7 @@ public static class RunnerSceneBuilder
         const float thickness = 0.3f;
 
         var root = new GameObject("Train_Ramp");
+        root.AddComponent<CampusRampVisual>();
 
         // --- наклонная часть ---
         float slopeLength = Mathf.Sqrt(run * run + top * top);
@@ -1761,11 +2157,56 @@ public static class RunnerSceneBuilder
         return box;
     }
 
+    /// <summary>
+    /// Сборщики работают с одной конкретной сценой игры. Если открыта другая
+    /// (или безымянная Untitled — так бывает сразу после того, как Unity
+    /// пересобрала Library и забыла, какая сцена была последней), то
+    /// SaveOpenScenes в конце показывал диалог «Save Scene As» и предлагал
+    /// сохранить мусор куда попало. Теперь сцена открывается явно.
+    /// </summary>
+    private static bool EnsureGameSceneOpen()
+    {
+        Scene active = EditorSceneManager.GetActiveScene();
+        if (active.path == GameScenePath) return true;
+
+        if (AssetDatabase.LoadAssetAtPath<SceneAsset>(GameScenePath) == null)
+        {
+            EditorUtility.DisplayDialog(
+                "Runner",
+                $"Не найдена сцена {GameScenePath}.\n\n" +
+                "Сборщик работает только с ней. Проверь, что проект открыт целиком.",
+                "Понятно");
+            return false;
+        }
+
+        // Безымянную сцену сохранять некуда и незачем: сборщик всё равно
+        // соберёт содержимое заново. Именованную — спрашиваем как обычно.
+        if (!string.IsNullOrEmpty(active.path) && active.isDirty &&
+            !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return false;
+
+        if (string.IsNullOrEmpty(active.path) && active.isDirty &&
+            !EditorUtility.DisplayDialog(
+                "Runner",
+                "Сейчас открыта несохранённая сцена. Сборщик работает с " +
+                GameScenePath + ".\n\nОткрыть её? Несохранённая сцена будет потеряна.",
+                "Открыть Game.unity", "Отмена")) return false;
+
+        EditorSceneManager.OpenScene(GameScenePath, OpenSceneMode.Single);
+        return true;
+    }
+
     private static void Finish(GameObject select, string message)
     {
         Selection.activeGameObject = select;
-        EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
-        EditorSceneManager.SaveOpenScenes();
+
+        Scene scene = EditorSceneManager.GetActiveScene();
+        EditorSceneManager.MarkSceneDirty(scene);
+
+        // Явный путь вместо SaveOpenScenes: без него безымянная сцена
+        // открывала диалог «куда сохранить».
+        if (string.IsNullOrEmpty(scene.path)) EditorSceneManager.SaveScene(scene, GameScenePath);
+        else EditorSceneManager.SaveScene(scene);
+
         Debug.Log($"[RunnerSceneBuilder] {message}");
     }
 

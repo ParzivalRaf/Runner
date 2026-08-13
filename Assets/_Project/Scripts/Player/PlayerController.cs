@@ -20,6 +20,11 @@ public class PlayerController : MonoBehaviour
     [Tooltip("За сколько секунд игрок переезжает на соседнюю полосу.")]
     [SerializeField] private float laneChangeTime = 0.15f;
 
+    [Header("Переходы между крышами")]
+    [Tooltip("Короткая защита от падения, пока игрок меняет полосу между двумя крышами поезда. " +
+             "Нужна из-за маленькой щели между вагонами; это не даёт перепрыгнуть конец состава.")]
+    [SerializeField] private float lateralRoofGrace = 0.22f;
+
     [Header("Бег вперёд")]
     // Стартовая скорость специально высокая: 14 из 24, а не 8.
     // При 8 и разгоне 0.15 до потолка ехать 107 секунд — почти две минуты
@@ -38,6 +43,9 @@ public class PlayerController : MonoBehaviour
 
     [Tooltip("Во сколько раз гравитация сильнее на спуске. Делает прыжок 'сочнее'.")]
     [SerializeField] private float fallGravityMultiplier = 1.6f;
+
+    [Tooltip("Сколько секунд после свайпа вверх перед приземлением ещё принять прыжок.")]
+    [SerializeField] private float jumpBufferDuration = 0.12f;
 
     [Tooltip("Множитель гравитации при свайпе вниз в воздухе (быстрое падение).")]
     [SerializeField] private float fastFallMultiplier = 3.5f;
@@ -73,6 +81,7 @@ public class PlayerController : MonoBehaviour
     // --- внутреннее состояние ---
 
     private CapsuleCollider _capsule;
+    private PlayerCollision _collision;
 
     private int _currentLane = 1;      // 0 = левая, 1 = центр, 2 = правая
     private float _targetX;
@@ -84,12 +93,15 @@ public class PlayerController : MonoBehaviour
     // Высота поверхности, на которой игрок стоит прямо сейчас. Меняется,
     // когда он запрыгивает на поезд и когда спрыгивает обратно.
     private float _surfaceY;
+    private float _lastElevatedSurfaceY;
+    private float _roofGraceEndsAt;
 
     private float _verticalVelocity;
     private float _riseGravity;
     private float _jumpVelocity;
     private bool _isGrounded = true;
     private bool _isFastFalling;
+    private float _jumpBufferedUntil = -1f;
 
     private bool _isSliding;
     private float _slideTimer;
@@ -129,6 +141,7 @@ public class PlayerController : MonoBehaviour
     private void Awake()
     {
         _capsule = GetComponent<CapsuleCollider>();
+        _collision = GetComponent<PlayerCollision>();
 
         Rigidbody body = GetComponent<Rigidbody>();
         body.isKinematic = true;
@@ -150,6 +163,8 @@ public class PlayerController : MonoBehaviour
 
         _baseGroundY = transform.position.y;
         _surfaceY = _baseGroundY;
+        _lastElevatedSurfaceY = _baseGroundY;
+        _roofGraceEndsAt = 0f;
         _currentSpeed = startSpeed;
         _currentLane = 1;
         _targetX = LaneToX(_currentLane);
@@ -176,6 +191,7 @@ public class PlayerController : MonoBehaviour
         // Чтобы значения из инспектора сразу пересчитывались в редакторе.
         jumpHeight = Mathf.Max(0.1f, jumpHeight);
         jumpAirTime = Mathf.Max(0.1f, jumpAirTime);
+        jumpBufferDuration = Mathf.Max(0f, jumpBufferDuration);
         fallGravityMultiplier = Mathf.Max(1f, fallGravityMultiplier);
         RecalculateJumpPhysics();
     }
@@ -209,14 +225,18 @@ public class PlayerController : MonoBehaviour
         _verticalVelocity = 0f;
         _isGrounded = true;
         _isFastFalling = false;
+        _jumpBufferedUntil = -1f;
 
         _isSliding = false;
         _slideTimer = 0f;
         _slideQueuedOnLanding = false;
 
         _surfaceY = _baseGroundY;
+        _lastElevatedSurfaceY = _baseGroundY;
+        _roofGraceEndsAt = 0f;
         transform.position = new Vector3(_targetX, _baseGroundY, 0f);
         ApplyStandingCollider();
+        if (_collision != null) _collision.ResetRun();
     }
 
     private void Update()
@@ -277,6 +297,27 @@ public class PlayerController : MonoBehaviour
         _targetX = LaneToX(_currentLane);
     }
 
+    /// <summary>
+    /// Лёгкий боковой контакт с поездом отменяет въезд в его полосу и мягко
+    /// отводит игрока обратно. Это не физический толчок: движение по полосам
+    /// остаётся предсказуемым и не зависит от массы Rigidbody.
+    /// </summary>
+    public void BounceAwayFromTrain(float trainX)
+    {
+        int nearestLane = Mathf.Clamp(Mathf.RoundToInt(transform.position.x / laneDistance) + 1,
+                                      0, 2);
+        int directionAway = trainX > transform.position.x ? -1 : 1;
+
+        _currentLane = Mathf.Clamp(nearestLane + directionAway, 0, 2);
+        _targetX = LaneToX(_currentLane);
+
+        // Сразу выводим капсулу из триггера, но не телепортируем к центру
+        // полосы: оставшаяся часть движения выглядит как короткий отскок.
+        Vector3 position = transform.position;
+        position.x = Mathf.MoveTowards(position.x, _targetX, laneDistance * 0.28f);
+        transform.position = position;
+    }
+
     // --------------------------------------------------------------- прыжок
 
     // Ровно столько игрок может «висеть» над поверхностью и всё ещё считаться
@@ -313,7 +354,8 @@ public class PlayerController : MonoBehaviour
     /// чем на stepUpTolerance, отбрасывается. Именно поэтому бегущий по земле
     /// игрок не запрыгивает на поезд сбоку сам собой: крыша на высоте 1.8
     /// просто не считается полом, пока игрок не поднялся к ней прыжком.
-    /// А врезавшись в борт, он умирает от триггера препятствия, как и должен.
+    /// Боковое касание состава отрабатывает отдельно в PlayerCollision:
+    /// персонажа слегка отбрасывает в безопасную полосу, не поднимая на крышу.
     /// </summary>
     private float FindSurfaceY()
     {
@@ -353,7 +395,27 @@ public class PlayerController : MonoBehaviour
 
     private void UpdateVertical(float dt)
     {
-        _surfaceY = FindSurfaceY();
+        float foundSurfaceY = FindSurfaceY();
+
+        // На двух соседних крышах между полосами есть физическая щель.
+        // Центр капсулы на долю секунды оказывается именно над ней, луч не
+        // видит крышу, и персонаж падал в борт второго вагона. Пока идёт
+        // смена полосы, держим последнюю высоту крыши ровно столько, сколько
+        // нужно пересечь этот зазор. У конца состава защита быстро истекает,
+        // поэтому случайный шаг в пустоту по-прежнему ведёт к падению.
+        bool changingLane = Mathf.Abs(transform.position.x - _targetX) > 0.01f;
+        if (foundSurfaceY > _baseGroundY + GroundStickTolerance)
+        {
+            _lastElevatedSurfaceY = foundSurfaceY;
+            _roofGraceEndsAt = Time.time + lateralRoofGrace;
+        }
+        else if (_isGrounded && changingLane && _lastElevatedSurfaceY > _baseGroundY + GroundStickTolerance
+                 && Time.time < _roofGraceEndsAt)
+        {
+            foundSurfaceY = _lastElevatedSurfaceY;
+        }
+
+        _surfaceY = foundSurfaceY;
 
         Vector3 position = transform.position;
 
@@ -396,7 +458,16 @@ public class PlayerController : MonoBehaviour
             // ощущается как парение: вверх есть, а возвращения веса нет.
             if (GameFeel.Instance != null) GameFeel.Instance.Land();
 
-            if (_slideQueuedOnLanding)
+            // Свайп вверх в последние кадры падения не должен теряться.
+            // Это не второй прыжок в воздухе: буфер ставится только при
+            // движении вниз и срабатывает ровно в момент касания пола.
+            if (_jumpBufferedUntil >= Time.time)
+            {
+                _jumpBufferedUntil = -1f;
+                _slideQueuedOnLanding = false;
+                Jump();
+            }
+            else if (_slideQueuedOnLanding)
             {
                 _slideQueuedOnLanding = false;
                 StartSlide();
@@ -519,6 +590,8 @@ public class PlayerController : MonoBehaviour
 
     private void HandleSwipe(SwipeDetector.Direction direction)
     {
+        if (GameManager.Instance != null && !GameManager.Instance.IsRunning) return;
+
         switch (direction)
         {
             case SwipeDetector.Direction.Left:
@@ -531,6 +604,11 @@ public class PlayerController : MonoBehaviour
 
             case SwipeDetector.Direction.Up:
                 if (_isGrounded) Jump();
+                else if (_verticalVelocity <= 0f)
+                {
+                    _jumpBufferedUntil = Time.time + jumpBufferDuration;
+                    _slideQueuedOnLanding = false;
+                }
                 break;
 
             case SwipeDetector.Direction.Down:

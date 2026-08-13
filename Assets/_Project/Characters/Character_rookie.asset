@@ -16,7 +16,7 @@ MonoBehaviour:
   displayName: "\u041D\u043E\u0432\u0438\u0447\u043E\u043A"
   catchPhrase: "\u0422\u0430\u043A, \u044F \u043F\u043E\u0431\u0435\u0436\u0430\u043B!"
   tint: {r: 0.72, g: 0.74, b: 0.78, a: 1}
-  visualPrefab: {fileID: 9094962736428169356, guid: dd8c4346c09f34dfca91b7bf8932c0a1, type: 3}
+  visualPrefab: {fileID: 3109989562332916419, guid: 1952b7f0a89b04bdeb97cd4d90be864d, type: 3}
   price: 0
   unlockedByDefault: 1
   ability: 0

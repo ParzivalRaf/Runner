@@ -44,7 +44,14 @@ public class ChunkSpawner : MonoBehaviour
 
     private bool _initialized;
 
-    private void Start() => ResetRun();
+    private void Start()
+    {
+        // В обычной сцене первый ResetRun уже делает GameManager. Второй
+        // запуск здесь создавал трассу повторно и мог рассинхронизировать
+        // историю препятствий. Без GameManager спавнер остаётся удобным для
+        // отдельного теста сцены и инициализирует себя сам.
+        if (GameManager.Instance == null) ResetRun();
+    }
 
     /// <summary>
     /// Создаёт пулы. Вызывается лениво, чтобы не зависеть от того, чей Start
@@ -78,7 +85,9 @@ public class ChunkSpawner : MonoBehaviour
             if (prefab == null) continue;
             if (_pools.ContainsKey(prefab)) continue;
 
-            _pools[prefab] = new ObjectPool(prefab.gameObject, _poolRoot, prewarmPerPrefab);
+            int minimumCapacity = chunksAhead + 2;
+            _pools[prefab] = new ObjectPool(prefab.gameObject, _poolRoot,
+                                             Mathf.Max(prewarmPerPrefab, minimumCapacity));
         }
 
         _initialized = true;

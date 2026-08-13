@@ -86,17 +86,20 @@ public class SwipeDetector : MonoBehaviour
             _isTracking = true;
         }
 
-        // Быстрый тап может прийти нажатием и отпусканием в одном кадре —
-        // тогда жест нужно закрыть сразу, иначе слежение зависнет включённым.
+        if (!_isTracking) return;
+
+        // Раньше отпускание пальца обрабатывалось ДО проверки дистанции.
+        // На быстром свайпе вниз движение и отпускание часто приходят в один
+        // кадр, поэтому жест просто выбрасывался и подкат не запускался.
+        // Теперь финальную позицию тоже проверяем как полноценный свайп.
         if (released)
         {
+            TryEmitPointerSwipe(pointer);
             _isTracking = false;
             return;
         }
 
         if (pressed) return;
-
-        if (!_isTracking) return;
 
         // Слишком долгий жест — это уже не свайп, а удержание.
         if (Time.unscaledTime - _startTime > maxSwipeTime)
@@ -105,17 +108,28 @@ public class SwipeDetector : MonoBehaviour
             return;
         }
 
-        Vector2 delta = pointer.position.ReadValue() - _startPosition;
-        if (delta.magnitude < Threshold) return;
+        // Свайп засчитывается сразу при прохождении порога, не ждём
+        // отпускания — так управление остаётся отзывчивым.
+        if (TryEmitPointerSwipe(pointer)) _isTracking = false;
+    }
 
-        // Свайп засчитан, как только палец прошёл порог — не ждём отпускания,
-        // так управление ощущается заметно отзывчивее.
-        _isTracking = false;
+    /// <summary>
+    /// Возвращает true, если текущее смещение уже можно считать свайпом.
+    /// Вызывается и в движении пальца, и в кадре его отпускания.
+    /// </summary>
+    private bool TryEmitPointerSwipe(Pointer pointer)
+    {
+        if (Time.unscaledTime - _startTime > maxSwipeTime) return false;
+
+        Vector2 delta = pointer.position.ReadValue() - _startPosition;
+        if (delta.magnitude < Threshold) return false;
 
         if (Mathf.Abs(delta.x) > Mathf.Abs(delta.y))
             Emit(delta.x > 0f ? Direction.Right : Direction.Left);
         else
             Emit(delta.y > 0f ? Direction.Up : Direction.Down);
+
+        return true;
     }
 
     // ---------------------------------------------------------------------

@@ -7,7 +7,7 @@ using System.Collections.Generic;
 ///   '.' — пусто
 ///   'B' — высокое препятствие (только объехать)
 ///   'J' — низкое (перепрыгнуть)
-///   'S' — балка сверху (подкат)
+///   'S' — балка сверху (высокая — только подкат, низкая — подкат или прыжок)
 ///   'T' — поезд. В таблицах НЕ встречается: его подставляет генератор,
 ///         занимая полосу на весь чанк.
 ///
@@ -178,5 +178,73 @@ public static class ObstaclePatterns
             if (previous[i] && next[i]) return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Ряд с поездом обязан оставить две ПУСТЫЕ наземные полосы. Это строже,
+    /// чем обычная проверка проходимости: игрок может оказаться по любую
+    /// сторону состава и не должен получать ряд, где единственный выход уже
+    /// занят блоком или требует реакции в последний момент.
+    /// </summary>
+    public static bool HasTwoClearGroundLanesAroundTrains(string pattern)
+    {
+        int trainCount = 0;
+        int clearCount = 0;
+
+        for (int lane = 0; lane < pattern.Length; lane++)
+        {
+            if (pattern[lane] == 'T') trainCount++;
+            if (pattern[lane] == '.') clearCount++;
+        }
+
+        return trainCount == 0 || clearCount >= 2;
+    }
+
+    /// <summary>
+    /// Проверяет исходные таблицы до запуска игры. Это намеренно отдельный
+    /// метод: его запускает и Test Runner, и пункт проверки в меню Unity.
+    /// При добавлении нового паттерна ошибка будет видна сразу, а не после
+    /// редкого смертельного чанка у игрока.
+    /// </summary>
+    public static bool ValidateTables(out string problem)
+    {
+        for (int tier = 0; tier <= 3; tier++)
+        {
+            foreach (string pattern in ForTier(tier))
+            {
+                if (string.IsNullOrEmpty(pattern) || pattern.Length != 3)
+                {
+                    problem = $"Tier {tier}: паттерн должен состоять из трёх символов: «{pattern}».";
+                    return false;
+                }
+
+                for (int lane = 0; lane < pattern.Length; lane++)
+                {
+                    char symbol = pattern[lane];
+                    if (symbol != '.' && symbol != 'B' && symbol != 'J' && symbol != 'S')
+                    {
+                        problem = $"Tier {tier}: недопустимый символ «{symbol}» в «{pattern}».";
+                        return false;
+                    }
+                }
+
+                if (!HasPassableLane(PassableLanes(pattern)))
+                {
+                    problem = $"Tier {tier}: нет проходимой полосы в «{pattern}».";
+                    return false;
+                }
+
+                if (RequiresAction(pattern) &&
+                    (pattern[0] != pattern[1] || pattern[1] != pattern[2] ||
+                     (pattern[0] != 'J' && pattern[0] != 'S')))
+                {
+                    problem = $"Tier {tier}: ряд с действием обязан быть JJJ или SSS, а не «{pattern}».";
+                    return false;
+                }
+            }
+        }
+
+        problem = null;
+        return true;
     }
 }
