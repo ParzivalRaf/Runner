@@ -38,6 +38,13 @@ public enum ArtSet
 
     /// <summary>Claude: процедурный набор, собранный кодом и сконвертированный в OBJ.</summary>
     Claude,
+
+    /// <summary>
+    /// Новый дизайн, собранный по ТЗ проекта (docs/ПРОМПТ_ДЛЯ_CLAUDE_DESIGN.md):
+    /// OBJ+MTL, вверх +Y, низ на нуле, центр в нуле, габариты уже совпадают
+    /// с игровыми. Единственный набор, который закрывает все тринадцать ролей.
+    /// </summary>
+    NewDesign,
 }
 
 /// <summary>
@@ -139,6 +146,16 @@ public static class CampusRushModels
                 ArtRole.Train, ArtRole.Ramp, ArtRole.ObstacleBlock, ArtRole.ObstacleJump,
                 ArtRole.BuildingA, ArtRole.BuildingB, ArtRole.ClockTower,
                 ArtRole.Tree, ArtRole.Lamp,
+            }
+        },
+        {
+            // Единственный набор без дыр: сделан под этот список ролей,
+            // поэтому подстановки из Original здесь не будет ни одной.
+            ArtSet.NewDesign, new HashSet<ArtRole>
+            {
+                ArtRole.Train, ArtRole.Ramp, ArtRole.ObstacleBlock, ArtRole.ObstacleJump,
+                ArtRole.ObstacleSlide, ArtRole.BuildingA, ArtRole.BuildingB, ArtRole.ClockTower,
+                ArtRole.Tree, ArtRole.Banner, ArtRole.Bench, ArtRole.Lamp, ArtRole.Planter,
             }
         },
     };

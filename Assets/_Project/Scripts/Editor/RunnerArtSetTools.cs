@@ -40,6 +40,25 @@ public static class RunnerArtSetTools
     private enum FitAxis { Width, Height, Depth }
 
     /// <summary>
+    /// Куда по Z сажать модель относительно точки, в которую её ставит игра.
+    ///
+    /// ЗАЧЕМ. Почти все модели игра ставит центром в точку — тумба, дерево,
+    /// фонарь. Но поезд и пандус устроены иначе: их коллайдеры идут ОТ нуля
+    /// вперёд на всю длину вагона (см. CreateTrainPrefab и CreateRampPrefab —
+    /// центр коробки на mid = length / 2). Модель, посаженную центром в ноль,
+    /// это сдвигает назад на полвагона: пять метров. Пандус при этом ещё и
+    /// упирается верхней площадкой в середину подъёма.
+    /// </summary>
+    private enum ZAnchor
+    {
+        /// <summary>Центр модели в нуле. Для всего, что игра ставит в точку.</summary>
+        Center,
+
+        /// <summary>Начало модели в нуле, модель уходит вперёд. Поезд и пандус.</summary>
+        Start,
+    }
+
+    /// <summary>
     /// Stretch — тянуть по всем трём осям под габариты коллайдера.
     /// Uniform — сохранить пропорции, подогнать одно измерение.
     /// </summary>
@@ -54,12 +73,18 @@ public static class RunnerArtSetTools
         public readonly FitAxis Fit;        // ось подгонки при Uniform
         public readonly FitMode Mode;
         public readonly float YRotation;    // разворот вокруг вертикали, градусы
+        public readonly string OrientNode;  // часть-ориентир; null — не проверять
+        public readonly float OrientSide;   // на какой стороне по Z она должна оказаться: +1 или -1
+        public readonly ZAnchor Anchoring;  // как сажать по Z
 
         public Entry(ArtRole role, string file, string anchor, Vector3 target,
-                     FitAxis fit, FitMode mode = FitMode.Uniform, float yRotation = 0f)
+                     FitAxis fit, FitMode mode = FitMode.Uniform, float yRotation = 0f,
+                     string orientNode = null, float orientSide = -1f,
+                     ZAnchor anchoring = ZAnchor.Center)
         {
             Role = role; File = file; Anchor = anchor; Target = target;
             Fit = fit; Mode = mode; YRotation = yRotation;
+            OrientNode = orientNode; OrientSide = orientSide; Anchoring = anchoring;
         }
     }
 
@@ -83,15 +108,15 @@ public static class RunnerArtSetTools
     private static readonly Vector3 SizeBanner = new(1.25f, 2.96f, 5.20f);
     private static readonly Vector3 SizeBench = new(2.25f, 1.50f, 0.77f);
     private static readonly Vector3 SizeLamp = new(1.14f, 3.33f, 0.64f);
+    private static readonly Vector3 SizePlanter = new(1.50f, 2.50f, 1.20f);
 
     private static readonly Dictionary<ArtSet, Entry[]> Recipes = new()
     {
         {
             ArtSet.GptPremium, new[]
             {
-                new Entry(ArtRole.Train,         "Premium_03_Trains",        "Premium_Train_BlueGold",     SizeTrain,     FitAxis.Width,  FitMode.Stretch),
-                // Замерено: этот пандус поднимается к +Z, эталонный — к -Z.
-                new Entry(ArtRole.Ramp,          "Premium_02_Gameplay_Props","Premium_Obstacle_Ramp",      SizeRamp,      FitAxis.Width,  FitMode.Stretch, 180f),
+                new Entry(ArtRole.Train,         "Premium_03_Trains",        "Premium_Train_BlueGold",     SizeTrain,     FitAxis.Width,  FitMode.Stretch, anchoring: ZAnchor.Start),
+                new Entry(ArtRole.Ramp,          "Premium_02_Gameplay_Props","Premium_Obstacle_Ramp",      SizeRamp,      FitAxis.Width,  FitMode.Stretch, 180f, anchoring: ZAnchor.Start),
                 new Entry(ArtRole.ObstacleBlock, "Premium_02_Gameplay_Props","Premium_Cabinet_Left",       SizeBlock,     FitAxis.Height, FitMode.Stretch),
                 new Entry(ArtRole.ObstacleJump,  "Premium_02_Gameplay_Props","Premium_Obstacle_Barricade", SizeJump,      FitAxis.Width,  FitMode.Stretch),
                 new Entry(ArtRole.Banner,        "Premium_02_Gameplay_Props","Premium_Campus_Banner",      SizeBanner,    FitAxis.Height),
@@ -104,8 +129,8 @@ public static class RunnerArtSetTools
         {
             ArtSet.GptBase, new[]
             {
-                new Entry(ArtRole.Train,         "02_TRAINS",       "Train_Metro_Blue",   SizeTrain, FitAxis.Width,  FitMode.Stretch),
-                new Entry(ArtRole.Ramp,          "03_OBSTACLES",    "Obstacle_JumpRamp",  SizeRamp,  FitAxis.Width,  FitMode.Stretch),
+                new Entry(ArtRole.Train,         "02_TRAINS",       "Train_Metro_Blue",   SizeTrain, FitAxis.Width,  FitMode.Stretch, anchoring: ZAnchor.Start),
+                new Entry(ArtRole.Ramp,          "03_OBSTACLES",    "Obstacle_JumpRamp",  SizeRamp,  FitAxis.Width,  FitMode.Stretch, anchoring: ZAnchor.Start),
                 new Entry(ArtRole.ObstacleBlock, "03_OBSTACLES",    "Obstacle_Crate",     SizeBlock, FitAxis.Height, FitMode.Stretch),
                 new Entry(ArtRole.ObstacleJump,  "03_OBSTACLES",    "Obstacle_Barricade", SizeJump,  FitAxis.Width,  FitMode.Stretch),
                 new Entry(ArtRole.ObstacleSlide, "03_OBSTACLES",    "Obstacle_LowGate",   SizeSlide, FitAxis.Width,  FitMode.Stretch),
@@ -117,8 +142,8 @@ public static class RunnerArtSetTools
         {
             ArtSet.Claude, new[]
             {
-                new Entry(ArtRole.Train,         "train",      null, SizeTrain,     FitAxis.Width,  FitMode.Stretch),
-                new Entry(ArtRole.Ramp,          "ramp",       null, SizeRamp,      FitAxis.Width,  FitMode.Stretch),
+                new Entry(ArtRole.Train,         "train",      null, SizeTrain,     FitAxis.Width,  FitMode.Stretch, anchoring: ZAnchor.Start),
+                new Entry(ArtRole.Ramp,          "ramp",       null, SizeRamp,      FitAxis.Width,  FitMode.Stretch, anchoring: ZAnchor.Start),
                 new Entry(ArtRole.ObstacleBlock, "lockers",    null, SizeBlock,     FitAxis.Height, FitMode.Stretch),
                 new Entry(ArtRole.ObstacleJump,  "barrier",    null, SizeJump,      FitAxis.Width,  FitMode.Stretch),
                 new Entry(ArtRole.BuildingA,     "brownstone", null, SizeBuildingA, FitAxis.Height),
@@ -126,6 +151,31 @@ public static class RunnerArtSetTools
                 new Entry(ArtRole.ClockTower,    "clocktower", null, SizeTower,     FitAxis.Height),
                 new Entry(ArtRole.Tree,          "tree",       null, SizeTree,      FitAxis.Height),
                 new Entry(ArtRole.Lamp,          "lamppost",   null, SizeLamp,      FitAxis.Height),
+            }
+        },
+        {
+            // Новый дизайн. Он собран прямо под таблицу габаритов выше, поэтому
+            // подгонка здесь везде в пределах пяти процентов — растяжение
+            // ничего не искажает (сравни с историей в 4.7 брифинга).
+            // Поезду и пандусу задан FrontNode: разворот считается по геометрии,
+            // а не выставлен наугад. См. ApplyOrientation.
+            ArtSet.NewDesign, new[]
+            {
+                new Entry(ArtRole.Train,         "train_car",       null, SizeTrain,     FitAxis.Width,  FitMode.Stretch,
+                          180f, orientNode: "nose_shell", orientSide: -1f, anchoring: ZAnchor.Start),
+                new Entry(ArtRole.Ramp,          "ramp_to_train",   null, SizeRamp,      FitAxis.Width,  FitMode.Stretch,
+                          180f, orientNode: "top_plate",  orientSide: +1f, anchoring: ZAnchor.Start),
+                new Entry(ArtRole.ObstacleBlock, "locker",          null, SizeBlock,     FitAxis.Height, FitMode.Stretch),
+                new Entry(ArtRole.ObstacleJump,  "barrier",         null, SizeJump,      FitAxis.Width,  FitMode.Stretch),
+                new Entry(ArtRole.ObstacleSlide, "slide_gate",      null, SizeSlide,     FitAxis.Width,  FitMode.Stretch),
+                new Entry(ArtRole.BuildingA,     "building_near_a", null, SizeBuildingA, FitAxis.Height),
+                new Entry(ArtRole.BuildingB,     "building_near_b", null, SizeBuildingB, FitAxis.Height),
+                new Entry(ArtRole.ClockTower,    "clock_tower",     null, SizeTower,     FitAxis.Height),
+                new Entry(ArtRole.Tree,          "tree",            null, SizeTree,      FitAxis.Height),
+                new Entry(ArtRole.Banner,        "banner",          null, SizeBanner,    FitAxis.Height),
+                new Entry(ArtRole.Bench,         "bench",           null, SizeBench,     FitAxis.Width),
+                new Entry(ArtRole.Lamp,          "lamp_post",       null, SizeLamp,      FitAxis.Height),
+                new Entry(ArtRole.Planter,       "planter",         null, SizePlanter,   FitAxis.Height),
             }
         },
     };
@@ -144,6 +194,9 @@ public static class RunnerArtSetTools
     [MenuItem("Tools/Runner/Набор моделей/Claude — процедурный")]
     private static void UseClaude() => Switch(ArtSet.Claude);
 
+    [MenuItem("Tools/Runner/Набор моделей/Новый дизайн (под ТЗ)")]
+    private static void UseNewDesign() => Switch(ArtSet.NewDesign);
+
     [MenuItem("Tools/Runner/Набор моделей/Свой (Original)", true)]
     private static bool ValidateOriginal() => Check(ArtSet.Original);
     [MenuItem("Tools/Runner/Набор моделей/ChatGPT — Premium Campus", true)]
@@ -152,6 +205,8 @@ public static class RunnerArtSetTools
     private static bool ValidateGptBase() => Check(ArtSet.GptBase);
     [MenuItem("Tools/Runner/Набор моделей/Claude — процедурный", true)]
     private static bool ValidateClaude() => Check(ArtSet.Claude);
+    [MenuItem("Tools/Runner/Набор моделей/Новый дизайн (под ТЗ)", true)]
+    private static bool ValidateNewDesign() => Check(ArtSet.NewDesign);
 
     private static bool Check(ArtSet set)
     {
@@ -164,7 +219,8 @@ public static class RunnerArtSetTools
         ArtSet.Original => "Tools/Runner/Набор моделей/Свой (Original)",
         ArtSet.GptPremium => "Tools/Runner/Набор моделей/ChatGPT — Premium Campus",
         ArtSet.GptBase => "Tools/Runner/Набор моделей/ChatGPT — базовый (метро)",
-        _ => "Tools/Runner/Набор моделей/Claude — процедурный",
+        ArtSet.Claude => "Tools/Runner/Набор моделей/Claude — процедурный",
+        _ => "Tools/Runner/Набор моделей/Новый дизайн (под ТЗ)",
     };
 
     private static void Switch(ArtSet set)
@@ -290,6 +346,7 @@ public static class RunnerArtSetTools
         ArtSet.GptPremium => "Premium",
         ArtSet.GptBase => "Base",
         ArtSet.Claude => "Sketch",
+        ArtSet.NewDesign => "NewDesign",
         _ => "Original",
     };
 
@@ -335,13 +392,7 @@ public static class RunnerArtSetTools
             foreach (Transform part in PartsFor(spawned.transform, anchor))
                 part.SetParent(fit, true);
 
-            // Разворот вокруг вертикали для моделей, собранных «задом наперёд».
-            // Пандус Premium поднимается к +Z, а игра ждёт подъём к -Z:
-            // без разворота игрок вбегает в отвесную стенку.
-            // Осторожно: сюда годится только 180°. На 90° местами меняются
-            // оси, и растяжение ниже начнёт тянуть модель не туда.
-            if (Mathf.Abs(entry.YRotation) > 0.01f)
-                fit.localRotation = Quaternion.Euler(0f, entry.YRotation, 0f);
+            ApplyOrientation(set, entry, fit);
 
             if (!TryBounds(container, out Bounds bounds))
             {
@@ -361,10 +412,13 @@ public static class RunnerArtSetTools
 
             fit.localScale = Vector3.Scale(fit.localScale, scale);
 
-            // Посадка: центр по X/Z в нуле, низ модели на нуле. Игра ставит
-            // модели в точку на земле и ждёт именно такой привязки.
+            // Посадка: центр по X в нуле, низ модели на нуле, а по Z — как
+            // сказано в записи. Center для всего, что игра ставит в точку;
+            // Start для поезда и пандуса, чьи коллайдеры идут от нуля вперёд
+            // (см. ZAnchor: без этого модель уезжает назад на полвагона).
             TryBounds(container, out bounds);
-            fit.position -= new Vector3(bounds.center.x, bounds.min.y, bounds.center.z);
+            float z = entry.Anchoring == ZAnchor.Start ? bounds.min.z : bounds.center.z;
+            fit.position -= new Vector3(bounds.center.x, bounds.min.y, z);
 
             foreach (Collider collider in container.GetComponentsInChildren<Collider>(true))
                 UnityEngine.Object.DestroyImmediate(collider);
@@ -385,6 +439,51 @@ public static class RunnerArtSetTools
             if (container != null) UnityEngine.Object.DestroyImmediate(container);
             if (spawned != null) UnityEngine.Object.DestroyImmediate(spawned);
         }
+    }
+
+    /// <summary>
+    /// Разворот вокруг вертикали для моделей, собранных «задом наперёд».
+    ///
+    /// КУДА ЧТО ДОЛЖНО СМОТРЕТЬ. Игрок бежит в сторону +Z (координата Z у него
+    /// растёт). Значит он подбегает к любому объекту с его −Z-конца. Отсюда:
+    /// - пандус поднимается К +Z: низкий край там, где игрок вбегает.
+    ///   Замерено в CreateRampPrefab — склон идёт от (z=0, y=0) к (z=7, y=2.6);
+    /// - поезд стоит носом к −Z, лицом к набегающему игроку.
+    ///
+    /// ПОЧЕМУ НЕ ПРОСТО ЧИСЛО В ТАБЛИЦЕ. Куда именно ляжет модель, решает
+    /// импортёр, а не файл: OBJ правосторонний, Unity левосторонняя, знак по Z
+    /// зависит от импортёра. Поэтому у записи задаётся часть-ориентир
+    /// (OrientNode) и сторона, на которой она обязана оказаться (OrientSide).
+    /// Часть находится в собранной модели, её центр замеряется, поворот
+    /// ставится по факту. В лог пишется, что измерено. Части нет —
+    /// откат на число из таблицы.
+    ///
+    /// Осторожно: годится только 180°. На 90° местами меняются оси,
+    /// и растяжение ниже начнёт тянуть модель не туда.
+    /// </summary>
+    private static void ApplyOrientation(ArtSet set, Entry entry, Transform fit)
+    {
+        float rotation = entry.YRotation;
+
+        if (entry.OrientNode != null)
+        {
+            Transform front = FindNode(fit, entry.OrientNode);
+            if (front != null && TryBounds(front.gameObject, out Bounds frontBounds))
+            {
+                bool correct = frontBounds.center.z * entry.OrientSide > 0f;
+                rotation = correct ? 0f : 180f;
+                Debug.Log($"[Наборы] {set}/{entry.Role}: «{entry.OrientNode}» на Z={frontBounds.center.z:F2}, " +
+                          $"надо на {(entry.OrientSide > 0f ? "+Z" : "-Z")} → поворот {rotation:F0}°");
+            }
+            else
+            {
+                Debug.LogWarning($"[Наборы] {set}/{entry.Role}: не нашёл часть «{entry.OrientNode}», " +
+                                 $"беру поворот из таблицы ({rotation:F0}°). Проверь модель глазами.");
+            }
+        }
+
+        if (Mathf.Abs(rotation) > 0.01f)
+            fit.localRotation = Quaternion.Euler(0f, rotation, 0f);
     }
 
     private static GameObject LoadModel(string folder, string file)

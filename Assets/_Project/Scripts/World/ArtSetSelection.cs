@@ -8,5 +8,5 @@
 /// </summary>
 public static class ArtSetSelection
 {
-    public const ArtSet Active = ArtSet.Claude;
+    public const ArtSet Active = ArtSet.NewDesign;
 }

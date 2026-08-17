@@ -92,16 +92,70 @@ public static class SchoolChunkVisuals
             }
         }
 
+        BuildCampusDeck(root);
+
         // Authored, rounded props break up the repeated box geometry and
         // establish the friendly campus identity without obstructing lanes.
-        BuildCampusProp(root, ArtRole.Planter, new Vector3(-7.72f, 0f, 4.4f),
-            Quaternion.Euler(0f, 18f, 0f), 0.80f);
-        BuildCampusProp(root, ArtRole.Bench, new Vector3(7.78f, 0f, 8.5f),
-            Quaternion.Euler(0f, -90f, 0f), 0.82f);
-        BuildCampusProp(root, ArtRole.Lamp, new Vector3(-7.78f, 0f, 17.2f),
-            Quaternion.Euler(0f, 0f, 0f), 0.82f);
-        BuildCampusProp(root, ArtRole.Planter, new Vector3(7.72f, 0f, 25.0f),
-            Quaternion.Euler(0f, -22f, 0f), 0.74f);
+        //
+        // ПОЧЕМУ ИХ СТАЛО БОЛЬШЕ. На четыре предмета в тридцати метрах обочина
+        // читалась как пустая: между оградой и дальними домами не происходило
+        // ничего. Теперь по каждой стороне идёт ритм фонарь — скамейка —
+        // фонарь — клумба, шаг около семи метров. Это тот же ритм, что
+        // у поперечных полос на трассе, и он же даёт ощущение скорости.
+        for (int side = -1; side <= 1; side += 2)
+        {
+            float x = side * 7.75f;
+            float phase = side < 0 ? 0f : 3.6f;   // стороны вразнобой, иначе видно повтор
+
+            BuildCampusProp(root, ArtRole.Lamp, new Vector3(x, 0f, 1.8f + phase),
+                Quaternion.Euler(0f, side < 0 ? 0f : 180f, 0f), 0.82f);
+            BuildCampusProp(root, ArtRole.Bench, new Vector3(x, 0f, 9.0f + phase),
+                Quaternion.Euler(0f, side * -90f, 0f), 0.82f);
+            BuildCampusProp(root, ArtRole.Lamp, new Vector3(x, 0f, 16.4f + phase),
+                Quaternion.Euler(0f, side < 0 ? 0f : 180f, 0f), 0.82f);
+            BuildCampusProp(root, ArtRole.Planter, new Vector3(x, 0f, 23.6f + phase),
+                Quaternion.Euler(0f, side * 22f, 0f), 0.78f);
+        }
+    }
+
+    // ------------------------------------------------------------- настил
+
+    /// <summary>
+    /// Земля по бокам от трассы.
+    ///
+    /// ЗАЧЕМ. Пол чанка шириной ровно 12 метров, то есть кончается на x = ±6.
+    /// Ограждение стоит на ±6.78, клумбы и фонари — на ±7.7, деревья — на ±9.5.
+    /// Всё это висело над пустотой: у нижнего края экрана между обочиной
+    /// и дальними домами было видно небо. Замерено по сборщику сцены
+    /// (TrackWidth = 12) и по координатам пропсов в этом файле.
+    ///
+    /// Лечение — две плиты на сторону: светлая дорожка сразу за оградой
+    /// и газон до самого фона. Ступенька между ними в 15 см нужна, чтобы
+    /// край дорожки ловил свет и читался как бордюр, а не как шов.
+    ///
+    /// Всё это без коллайдеров, как и остальное в этом классе: механику
+    /// трассы декорации трогать не могут. Стоит четыре коробки на чанк.
+    /// </summary>
+    private static void BuildCampusDeck(Transform root)
+    {
+        const float mid = 15f;      // середина чанка по Z
+        const float len = 30f;      // длина чанка
+
+        for (int side = -1; side <= 1; side += 2)
+        {
+            // Дорожка: от 5.9 (чуть заходит под пол, чтобы не было щели) до 11.5.
+            Box(root, "DeckWalk_" + side, new Vector3(side * 8.7f, -0.47f, mid),
+                new Vector3(5.6f, 0.9f, len), _wall);
+
+            // Газон: от 11.5 до 34 — дальше начинается параллаксный фон.
+            Box(root, "DeckLawn_" + side, new Vector3(side * 22.75f, -0.62f, mid),
+                new Vector3(22.5f, 0.9f, len), _bookGreen);
+
+            // Живая изгородь по краю дорожки. Одна коробка на сторону, а
+            // закрывает стык дорожки с газоном на все тридцать метров.
+            Box(root, "DeckHedge_" + side, new Vector3(side * 11.9f, 0.16f, mid),
+                new Vector3(1.2f, 0.95f, len), _bookGreen);
+        }
     }
 
     // --------------------------------------------------------------- коридор

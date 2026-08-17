@@ -234,9 +234,14 @@ public static class RunnerSceneBuilder
         var root = new GameObject("Coin");
         Coin coin = root.AddComponent<Coin>();
 
+        // Монета выросла с 0.70 до 0.95 в диаметре — ровно тот размер,
+        // что записан в ТЗ на модели (1.0 × 1.0 × 0.2). На референсе монеты
+        // крупные и лезут на экран: это самая дешёвая «сочность» в игре.
+        // Радиус триггера подрос вслед за видом, иначе монета выглядела бы
+        // больше, чем ловится.
         var trigger = root.AddComponent<SphereCollider>();
         trigger.isTrigger = true;
-        trigger.radius = 0.6f;
+        trigger.radius = 0.68f;
 
         // Монета — сплюснутый цилиндр, поставленный на ребро.
         GameObject visual = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
@@ -244,7 +249,7 @@ public static class RunnerSceneBuilder
         visual.transform.SetParent(root.transform, false);
         visual.transform.localPosition = Vector3.zero;
         visual.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-        visual.transform.localScale = new Vector3(0.7f, 0.05f, 0.7f);
+        visual.transform.localScale = new Vector3(0.95f, 0.07f, 0.95f);
         visual.GetComponent<Renderer>().sharedMaterial = mats.Coin;
         Object.DestroyImmediate(visual.GetComponent<Collider>());
 
@@ -253,15 +258,16 @@ public static class RunnerSceneBuilder
         GameObject inset = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
         inset.name = "Inset";
         inset.transform.SetParent(root.transform, false);
-        inset.transform.localPosition = new Vector3(0f, 0f, -0.07f);
+        inset.transform.localPosition = new Vector3(0f, 0f, -0.095f);
         inset.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-        inset.transform.localScale = new Vector3(0.54f, 0.035f, 0.54f);
+        inset.transform.localScale = new Vector3(0.73f, 0.05f, 0.73f);
         inset.GetComponent<Renderer>().sharedMaterial = mats.Coin;
         Object.DestroyImmediate(inset.GetComponent<Collider>());
 
         GameObject star = CreateCoinStar(mats.Marker);
         star.transform.SetParent(root.transform, false);
-        star.transform.localPosition = new Vector3(0f, 0f, -0.12f);
+        star.transform.localPosition = new Vector3(0f, 0f, -0.16f);
+        star.transform.localScale = Vector3.one * 1.35f;
 
         var so = new SerializedObject(coin);
         so.FindProperty("visual").objectReferenceValue = visual.transform;
